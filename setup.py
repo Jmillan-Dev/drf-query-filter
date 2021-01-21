@@ -2,11 +2,16 @@ import os
 from setuptools import setup
 
 file_path = os.path.dirname(__file__)
-with open(os.path.join(file_path, 'README.md')) as f:
-    long_description = f.read()
+
+
+def read_file(file_name: str):
+    with open(os.path.join(file_path, file_name)) as f:
+        return f.read()
     
-with open(os.path.join(file_path, 'requirements')) as f:
-    install_requires = f.read().strip().splitlines()
+    
+long_description = read_file('README.md')
+license_text = read_file('LICENSE')
+install_requires = read_file('requirements.txt').strip().splitlines()
 
 setup(
     name='drf-query-filter',
@@ -18,19 +23,21 @@ setup(
     ),
     long_description=long_description,
     long_description_content_type='text/markdown',
-    url='',
-    download_url='',
-    license='',
+    url='https://github.com/Jmillan-Dev/drf-query-filter',
+    license=license_text,
     author='Josué Millán Zamora',
     author_email='hi@jmillan.me',
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
-        'License :: TODO',
+        'Framework :: Django',
+        'License :: OSI Approved :: MIT License'
+        'Programming Language :: Python',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.2',
         'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
+        'Topic :: Internet :: WWW/HTTP',
     ],
     install_requires=install_requires,
     keywords='drf-query-filter filters queryparameters django restframework',
