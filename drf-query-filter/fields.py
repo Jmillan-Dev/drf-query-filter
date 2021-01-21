@@ -1,6 +1,3 @@
-"""
-This are the fields use to make queries, I'll try to innovate on how this actually works
-"""
 import datetime
 import re
 from typing import List, Callable, Union, Tuple, Dict, Any
@@ -56,7 +53,7 @@ class Field:
     
     def __call__(self, query_data: Dict) -> None:
         """
-        Search from the dictionary it's value. if it didn't find it then set the flag no_value as True
+        Try to find the value from the given field, if it doesn't find it it sets the flag no_value as True
         :param query_data:
         :return:
         """
@@ -70,14 +67,13 @@ class Field:
     
     def validate(self, value: Any) -> None:
         """
-        Make a custom validation that run
-        This should throw an Validation Error if one is encountered
-        this can also transform the value and return it.
+        Function for custom validations, if there is any error it should throw an ValidationError Exception.
+        This can also manipulate the value if required.
         """
         return value
     
     def run_validators(self, value: Any) -> None:
-        """ This uses the validation style like in rest_framework """
+        """ This uses the validation style like in the fields of rest_framework """
         if self.validators:
             for validator in self.validators:
                 # run all the validations and gather all the errors if there are any
