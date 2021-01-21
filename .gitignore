@@ -1,0 +1,39 @@
+# IDE
+.idea
+
+# Distribution / packaging
+.Python
+venv/
+env/
+build/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+.log
+
+# PyBuilder
+target/
+
+# ignore sqlite3 files
+*.sqlite3
+
+# Vim tempfiles
+*.swp
+*.swo
+
+# Local settings
+local_settings.py
+
+# dist
+dist/
