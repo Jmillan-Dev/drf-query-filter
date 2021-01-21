@@ -27,6 +27,7 @@ target/
 
 # ignore sqlite3 files
 *.sqlite3
+*.db
 
 # Vim tempfiles
 *.swp
