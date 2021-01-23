@@ -1,7 +1,7 @@
 from django.db.models import Q
 from rest_framework.exceptions import ValidationError
 
-from utils import QueryType
+from drf_query_filter.utils import QueryType
 
 
 class Range:

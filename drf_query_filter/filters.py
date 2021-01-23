@@ -46,16 +46,16 @@ class QueryParamFilter(filters.BaseFilterBackend):
         annotate = {}
         for query_param in query_params:
             if isinstance(query_param, fields.Field):
-                query_param(request.query_params)
-                if query_param.is_valid():
-                    annotate.update(query_param.get_annotate())
-                    if query_type == utils.QueryType.AND:
-                        query &= query_param.get_query()
-                    elif query_type == utils.QueryType.OR:
-                        query |= query_param.get_query()
-                else:
-                    # gather all the errors found
-                    errors[query_param.field_name] = ValidationError(query_param.errors).detail
+                if query_param(request.query_params):
+                    if query_param.is_valid():
+                        annotate.update(query_param.get_annotate())
+                        if query_type == utils.QueryType.AND:
+                            query &= query_param.get_query()
+                        elif query_type == utils.QueryType.OR:
+                            query |= query_param.get_query()
+                    else:
+                        # gather all the errors found
+                        errors[query_param.field_name] = ValidationError(query_param.errors).detail
             else:
                 assert utils.QueryType.has_value(query_param), (
                         'given value `%s` is not a valid option, use: %s' %

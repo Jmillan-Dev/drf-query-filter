@@ -1,30 +1,33 @@
 import datetime
 import re
-from typing import List, Callable, Union, Tuple, Dict, Any
+from typing import List, Callable, Union, Tuple, Dict, Any, Optional
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import CharField
+from django.db.models import CharField as DjangoCharField
 from django.db.models.functions import Concat
 from django.db.models.query_utils import Q
 from rest_framework.exceptions import ValidationError
 from rest_framework.fields import get_error_detail
 
-import mixins
-from utils import QueryType
+from drf_query_filter import mixins
+from drf_query_filter.utils import QueryType
+
+
+class Empty:
+    """ Dummy class just to represent a True None value """
+    pass
 
 
 class Field:
     def __init__(self,
                  field_name: str,
-                 target_fields: Union[str, List, Tuple],
-                 required: bool = False,
+                 target_fields: Optional[Union[str, List, Tuple]] = None,
                  validators: List[Callable] = None,
                  union_type: QueryType = QueryType.AND):
         """
         Base field
         :param field_name: The name in the query params of the url
         :param target_fields: The target fields in the queryset, This can be a str alone or multiple of them
-        :param required: If this is a required field for the queryset
         :param validators: A list of class validators to call in the validation process
         :param union_type: Type of union in the target fields
         """
@@ -44,30 +47,27 @@ class Field:
         
         self.validators: List[Callable] = validators
         self.query_type: QueryType = union_type
-        self.required: bool = required  # this creates some validation if the value is not found but it is required
         
-        self._value: Any = None  # value got from the query param request
-        self.value: Any = None  # transformed value
+        self._raw_value: Any = Empty()  # value got from the query param request
+        self._value: Any = self._raw_value  # transformed value
         self.no_value: bool = True  # Flag to check if this
         self.errors: List = []  # the list of errors we got
     
-    def __call__(self, query_data: Dict) -> None:
+    def __call__(self, query_data: Dict) -> bool:
         """
         Try to find the value from the given field, if it doesn't find it it sets the flag no_value as True
-        :param query_data:
-        :return:
         """
         
         if self.field_name in query_data:
-            self._value = query_data[self.field_name]
-            self.no_value = False
+            self._raw_value = query_data[self.field_name]
+            return True
         else:
-            self._value = None
-            self.no_value = True
+            self._raw_value = Empty()
+            return False
     
     def validate(self, value: Any) -> None:
         """
-        Function for custom validations, if there is any error it should throw an ValidationError Exception.
+        Function for custom validations, if there is any error it should throw a ValidationError Exception.
         This can also manipulate the value if required.
         """
         return value
@@ -76,7 +76,7 @@ class Field:
         """ This uses the validation style like in the fields of rest_framework """
         if self.validators:
             for validator in self.validators:
-                # run all the validations and gather all the errors if there are any
+                # run all the validators and gather all the errors thrown by them
                 try:
                     validator(value)
                 except ValidationError as exc:
@@ -87,19 +87,24 @@ class Field:
     def is_valid(self) -> bool:
         self.errors = []  # Clean all the previous errors
         
-        if self.no_value and self.required:
-            self.errors.extend(ValidationError('This field is required', 'required').detail)
-        elif not self.no_value:
-            try:
-                self.value = self.validate(self._value)
-            except ValidationError as exc:
-                self.errors.extend(exc.detail)
-            except DjangoValidationError as exc:
-                self.errors.extend(get_error_detail(exc))
-            else:
-                self.run_validators(self.value)
+        assert not isinstance(self._raw_value, Empty),\
+            'you cannot call is_valid without giving a value first'
+        
+        try:
+            self._value = self.validate(self._raw_value)
+        except ValidationError as exc:
+            self.errors.extend(exc.detail)
+        except DjangoValidationError as exc:
+            self.errors.extend(get_error_detail(exc))
+        else:
+            self.run_validators(self._value)
         
         return len(self.errors) == 0
+    
+    @property
+    def value(self) -> Any:
+        assert not isinstance(self._value, Empty), 'you must call is_valid first'
+        return self._value
     
     def get_value_query(self) -> Any:
         """ This should be overwritten if the desire data needs to be manipulated for the query """
@@ -107,13 +112,12 @@ class Field:
     
     def get_query(self) -> Q:
         query = Q()
-        if not self.no_value:
-            value = self.get_value_query()
-            for field in self.target_fields:
-                if self.query_type == QueryType.AND:
-                    query &= Q(**{field: value})
-                elif self.query_type == QueryType.OR:
-                    query |= Q(**{field: value})
+        value = self.get_value_query()
+        for field in self.target_fields:
+            if self.query_type == QueryType.AND:
+                query &= Q(**{field: value})
+            elif self.query_type == QueryType.OR:
+                query |= Q(**{field: value})
         
         return query
     
@@ -128,11 +132,11 @@ class NumberField(Field):
     """
     
     def validate(self, value):
-        """ by default this will try to get the data to be a number always """
+        """ by default this will try to get the data to be a number always using float """
         try:
             return float(value)
         except ValueError:
-            raise ValidationError('Value `%s` is not a valid number' % value, code='wrong_type')
+            raise ValidationError('Value `%s` is not a valid number' % value, code='invalid')
 
 
 class RangeNumberField(mixins.Range,
@@ -140,9 +144,10 @@ class RangeNumberField(mixins.Range,
     """
     Accepts two values of numbers in the string and check them with greater than or lesser than in the query
     """
+    pass
 
 
-class DateField(Field):
+class DateTimeField(Field):
     """
     Field that only accepts values that can be parsed into date time
     """
@@ -157,18 +162,18 @@ class DateField(Field):
             return datetime.datetime.strptime(value, self.date_format)
         except ValueError:
             raise ValidationError('Value %s does not have the correct format, should be %s' %
-                                  (value, self.date_format))
+                                  (value, self.date_format), code='wrong_format')
 
 
-class RangeDateField(mixins.Range,
-                     DateField):
+class RangeDateTimeField(mixins.Range,
+                         DateTimeField):
     """
     Accepts two values of dates in the string and check them with greater than or lesser than in the query
     """
     pass
 
 
-class OptionsField(Field):
+class ChoicesField(Field):
     """
     Field made to support multiple options.
     this can handle case sensitive and custom messages for the error thrown
@@ -179,28 +184,30 @@ class OptionsField(Field):
     default_validate_message = 'Value `%s` is not a valid option, Options are: %s'
     
     def __init__(self, *args,
-                 valid_values: List[str] = None,
+                 choices: List[str] = None,
                  case_sensitive: bool = None,
                  validate_message: str = "",
                  **kwargs):
-        self.values = valid_values or self.default_values
+        self.choices = choices or self.default_values
         self.case_sensitive = case_sensitive or self.default_case_sensitive
         self.validate_message = validate_message or self.default_validate_message
         super().__init__(*args, **kwargs)
     
     def validate(self, value):
-        valid_values = self.values
+        clean_choices = self.choices
+        # If case sensitive is on lower the values in the incoming value
+        # and make sure that choices are also clean
         if not self.case_sensitive:
             value = value.lower()
-            valid_values = [valid_value.lower() for valid_value in valid_values]
+            clean_choices = [valid_value.lower() for valid_value in clean_choices]
         
-        if value not in valid_values:
-            raise ValidationError(detail=self.validate_message % (value, self.values),
-                                  code='not_in_options')
-        return valid_values
+        if value not in clean_choices:
+            raise ValidationError(detail=self.validate_message % (value, self.choices),
+                                  code='not_in_choices')
+        return value
 
 
-class BooleanField(OptionsField):
+class BooleanField(ChoicesField):
     """
     Field that only accepts boolean related strings
     Field that only accepts some valid values in the data of query params
@@ -208,11 +215,15 @@ class BooleanField(OptionsField):
     """
     
     def __init__(self, *args, **kwargs):
-        # ignore the kwargs of valid_values
-        kwargs['valid_values'] = ['true', 'false', '1', '0']
+        # ignore the kwargs of choices
+        kwargs['choices'] = ['true', 'false', '1', '0']
         kwargs['validate_message'] = 'Value `%s` is not a valid boolean. Options are: %s'
         kwargs['case_sensitive'] = False
         super().__init__(*args, **kwargs)
+    
+    def validate(self, value):
+        value = super().validate(value)
+        return value in ['true', '1']
 
 
 class ExistsField(Field):
@@ -246,12 +257,10 @@ class CombinedField(Field):
         return '__%s' % self.suffix if self.suffix else ''
     
     def get_query(self):
-        query = Q()
-        if not self.no_value:
-            query &= Q(**{'%s%s' % (self.target_field_name, self.get_suffix()): self.get_value_query()})
+        query = Q(**{'%s%s' % (self.target_field_name, self.get_suffix()): self.get_value_query()})
         return query
     
     def get_annotate(self):
         # concat values here
-        concat = Concat(*self.target_fields, output_field=CharField())
+        concat = Concat(*self.target_fields, output_field=DjangoCharField())
         return {self.target_field_name: concat}

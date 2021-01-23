@@ -70,7 +70,6 @@ INSTALLED_APPS = (
     'django.contrib.sites',
     'django.contrib.messages',
     'rest_framework',
-    'app',
 )
 
 STATIC_URL = '/static/'
