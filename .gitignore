@@ -38,3 +38,6 @@ local_settings.py
 
 # dist
 dist/
+
+# python stuff
+__pycache__
