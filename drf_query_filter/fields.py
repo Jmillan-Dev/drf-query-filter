@@ -1,11 +1,13 @@
 import datetime
 import re
+import decimal
 from typing import List, Callable, Union, Tuple, Dict, Any, Optional
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import CharField as DjangoCharField
+from django.db.models.fields import CharField as DjangoCharField
 from django.db.models.functions import Concat
 from django.db.models.query_utils import Q
+from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 from rest_framework.fields import get_error_detail
 
@@ -126,27 +128,77 @@ class Field:
         return {}
 
 
-class NumberField(Field):
+class IntegerField(Field):
     """
-    Field that only accepts numbers as values
+    Field that only accepts integers as values
     """
+    error_messages = {
+        'invalid': _('“%(value)s” value must be an integer.'),
+    }
     
     def validate(self, value):
-        """ by default this will try to get the data to be a number always using float """
         try:
-            return float(value)
-        except ValueError:
-            raise ValidationError('Value `%s` is not a valid number' % value, code='invalid')
+            return int(value)
+        except (TypeError, ValueError):
+            raise ValidationError(self.error_messages['invalid'] % {'value': value}, code='invalid')
 
 
-class RangeNumberField(mixins.Range,
-                       NumberField):
+class RangeIntegerField(mixins.Range,
+                        IntegerField):
     """
-    Accepts two values of numbers in the string and check them with greater than or lesser than in the query
+    Accepts two integer values in the string and generate a query with greater than or lesser than in the target fields.
     """
     pass
 
 
+class FloatField(Field):
+    """
+    Field that only accepts floats values
+    """
+    error_messages = {
+        'invalid': _('“%(value)s” value must be a float.'),
+    }
+    
+    def validate(self, value):
+        """ Try to parse the value into a float """
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            raise ValidationError(self.error_messages['invalid'] % {'value': value}, code='invalid')
+
+
+class RangeFloatField(mixins.Range,
+                      FloatField):
+    """
+    Accepts two float values in the string and generate a query with greater than or lesser than in the target fields.
+    """
+    pass
+
+
+# TODO is still missing some validation unique to the Decimal type
+class DecimalField(Field):
+    """
+    Field that only accepts Decimal values
+    """
+    error_messages = {
+        'invalid': _('“%(value)s” value must be a double.'),
+    }
+    
+    def validate(self, value):
+        try:
+            return decimal.Decimal(value)
+        except (decimal.InvalidOperation, TypeError, ValueError):
+            raise ValidationError(self.error_messages['invalid'] % {'value': value}, code='invalid')
+
+
+class RangeDecimalField(Field):
+    """
+    Accepts two Decimal values in the string and generate a query with greater than or lesser than in the target fields.
+    """
+    pass
+
+
+# TODO divide DateTimeField into DateField and DateTimeField
 class DateTimeField(Field):
     """
     Field that only accepts values that can be parsed into date time
@@ -168,7 +220,7 @@ class DateTimeField(Field):
 class RangeDateTimeField(mixins.Range,
                          DateTimeField):
     """
-    Accepts two values of dates in the string and check them with greater than or lesser than in the query
+    Accepts two dates values in the string and generate a query with greater than or lesser than in the target fields.
     """
     pass
 
@@ -248,6 +300,7 @@ class CombinedField(Field):
     def __init__(self, *args, **kwargs):
         self.suffix = kwargs.pop('suffix', '')
         self.target_field_name = kwargs.pop('target_field_name', '')
+        self.output_field = kwargs.pop('output_field', DjangoCharField())
         super().__init__(*args, **kwargs)
         if not self.target_field_name:
             self.target_field_name = re.sub(r'__+', '_', re.sub(self.invalid_characters, '_',
@@ -262,5 +315,5 @@ class CombinedField(Field):
     
     def get_annotate(self):
         # concat values here
-        concat = Concat(*self.target_fields, output_field=DjangoCharField())
+        concat = Concat(*self.target_fields, output_field=self.output_field)
         return {self.target_field_name: concat}
