@@ -1,4 +1,11 @@
-from django.core.validators import EmailValidator, URLValidator, MaxValueValidator, MinValueValidator
+from decimal import Decimal
+
+from django.core.validators import (
+    EmailValidator,
+    URLValidator,
+    MaxValueValidator,
+    MinValueValidator,
+)
 from django.db.models import Q
 from django.test import TestCase
 
@@ -6,12 +13,16 @@ from drf_query_filter.fields import (
     Empty,
     Field,
     ExistsField,
-    NumberField,
+    FloatField,
     BooleanField,
     ChoicesField,
+    DecimalField,
+    IntegerField,
     CombinedField,
     DateTimeField,
-    RangeNumberField,
+    RangeFloatField,
+    RangeIntegerField,
+    RangeDecimalField,
     RangeDateTimeField,
 )
 
@@ -82,10 +93,22 @@ class ExistsFieldTests(TestCase):
         self.assertEqual(str(field.get_query()), str(Q(field='My_custom_value')))
 
 
-class NumberFieldTests(TestCase):
+class NumericFieldsTests(TestCase):
     
-    def test_validate(self):
-        field = NumberField('field')
+    def test_integer_validate(self):
+        field = IntegerField('field')
+        field({'field': '0123'})
+        self.assertTrue(field.is_valid(), field.errors)
+        self.assertEqual(field.value, 123)
+        field({'field': '10.69'})
+        self.assertFalse(field.is_valid())
+        self.assertEqual(field.errors[0].code, 'invalid')
+        field({'field': 'not_a_number'})
+        self.assertFalse(field.is_valid())
+        self.assertEqual(field.errors[0].code, 'invalid')
+
+    def test_float_validate(self):
+        field = FloatField('field')
         field({'field': '0123'})
         self.assertTrue(field.is_valid(), field.errors)
         self.assertEqual(field.value, 123)
@@ -95,18 +118,31 @@ class NumberFieldTests(TestCase):
         field({'field': 'not_a_number'})
         self.assertFalse(field.is_valid())
         self.assertEqual(field.errors[0].code, 'invalid')
-    
+
+    def test_decimal_validate(self):
+        field = DecimalField('field')
+        field({'field': '0123'})
+        self.assertTrue(field.is_valid())
+        self.assertEqual(field.value, Decimal('0123'))
+        field({'field': '10.69'})
+        self.assertTrue(field.is_valid(), field.errors)
+        self.assertEqual(field.value, Decimal('10.69'))
+        field({'field': 'not_a_number'})
+        self.assertFalse(field.is_valid())
+        self.assertEqual(field.errors[0].code, 'invalid')
+
     def test_validators(self):
         """ Using numeric validators of Django """
-        field = NumberField('field', validators=[MinValueValidator(3), MaxValueValidator(10)])
-        field({'field': '10'})
-        self.assertTrue(field.is_valid(), field.errors)
-        field({'field': '0'})
-        self.assertFalse(field.is_valid())
-        self.assertEqual(field.errors[0].code, 'min_value')
-        field({'field': '100'})
-        self.assertFalse(field.is_valid())
-        self.assertEqual(field.errors[0].code, 'max_value')
+        for field_class in [IntegerField, FloatField, DecimalField]:
+            field = field_class('field', validators=[MinValueValidator(3), MaxValueValidator(10)])
+            field({'field': '10'})
+            self.assertTrue(field.is_valid(), field.errors)
+            field({'field': '0'})
+            self.assertFalse(field.is_valid())
+            self.assertEqual(field.errors[0].code, 'min_value')
+            field({'field': '100'})
+            self.assertFalse(field.is_valid())
+            self.assertEqual(field.errors[0].code, 'max_value')
 
 
 class BooleanFieldTests(TestCase):
@@ -151,10 +187,23 @@ class ChoicesFieldTests(TestCase):
 class CombinedFieldTests(TestCase):
     
     def test_annotate(self):
-        pass
+        # we cannot really compare the Concat values so we just compare the result field name generated
+        field = CombinedField('field', ['field_one', 'field_two'])
+        self.assertTrue('field_one_field_two', field.get_annotate())
+        field = CombinedField('field', ['field_one__element', 'field__other'])
+        self.assertTrue('field_one_element_field_other', field.get_annotate())
+        field = CombinedField('field', ['field_one', 'field_two'], target_field_name='field_annotate')
+        self.assertIn('field_annotate', field.get_annotate())
     
-    def test_validate(self):
-        pass
+    def test_get_query(self):
+        field = CombinedField('field', ['field_one', 'field_two'])
+        field({'field': 'value'})
+        field.is_valid()
+        self.assertEqual(str(field.get_query()), str(Q(field_one_field_two='value')))
+        field = CombinedField('field', ['field_one', 'field_two'], lookup='icontains')
+        field({'field': 'value'})
+        field.is_valid()
+        self.assertEqual(str(field.get_query()), str(Q(field_one_field_two__icontains='value')))
 
 
 class DateTimeFieldTests(TestCase):
@@ -163,7 +212,7 @@ class DateTimeFieldTests(TestCase):
         pass
 
 
-class RangeNumberFieldTests(TestCase):
+class RangeNumericFieldTests(TestCase):
     
     def test_validate(self):
         pass
