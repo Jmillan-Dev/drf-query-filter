@@ -191,14 +191,14 @@ class DecimalField(Field):
             raise ValidationError(self.error_messages['invalid'] % {'value': value}, code='invalid')
 
 
-class RangeDecimalField(Field):
+class RangeDecimalField(mixins.Range,
+                        DecimalField):
     """
     Accepts two Decimal values in the string and generate a query with greater than or lesser than in the target fields.
     """
     pass
 
 
-# TODO divide DateTimeField into DateField and DateTimeField
 class DateTimeField(Field):
     """
     Field that only accepts values that can be parsed into date time
@@ -298,7 +298,7 @@ class CombinedField(Field):
     invalid_characters = r'[\( \)\\/]'
     
     def __init__(self, *args, **kwargs):
-        self.suffix = kwargs.pop('suffix', '')
+        self.suffix = kwargs.pop('lookup', '')
         self.target_field_name = kwargs.pop('target_field_name', '')
         self.output_field = kwargs.pop('output_field', DjangoCharField())
         super().__init__(*args, **kwargs)

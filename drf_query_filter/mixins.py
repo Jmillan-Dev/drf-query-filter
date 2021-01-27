@@ -9,11 +9,11 @@ class Range:
     
     def __init__(self, *args,
                  list_separator: str = None,
-                 than_equal: bool = False,
+                 equal: bool = False,
                  allow_empty: bool = True,
                  **kwargs):
         self.list_separator = list_separator or self.default_list_separator
-        self.equal = than_equal
+        self.equal = equal
         self.allow_empty = allow_empty
         self.target_fields = None
         super().__init__(*args, **kwargs)
@@ -34,27 +34,27 @@ class Range:
                                   code='not_enough_values')
         
         # check if the values are numbers
+        new_values = []
         for v in value:
             if self.allow_empty and len(v) == 0:  # I don't like this... but I'm tired to think in a better solution.
                 pass
             else:
-                super().validate(v)
-        return value
+                new_values.append(super().validate(v))
+        return new_values
     
     def get_query(self):
         query = Q()
-        if not self.no_value:
-            values = self.value
-            for target_field_gt, target_field_lt in self.get_target_fields():
-                query_dict = {}
-                if values[0]:
-                    query_dict[target_field_gt] = values[0]
-                if values[1]:
-                    query_dict[target_field_lt] = values[1]
-                if self.query_type == QueryType.AND:
-                    query &= Q(**query_dict)
-                elif self.query_type == QueryType.OR:
-                    query |= Q(**query_dict)
+        for target_field_gt, target_field_lt in self.get_target_fields():
+            query_dict = {}
+            if self.value[0]:
+                query_dict[target_field_gt] = self.value[0]
+            if self.value[1]:
+                query_dict[target_field_lt] = self.value[1]
+            
+            if self.query_type == QueryType.AND:
+                query &= Q(**query_dict)
+            elif self.query_type == QueryType.OR:
+                query |= Q(**query_dict)
         return query
 
 

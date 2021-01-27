@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 
 from django.core.validators import (
@@ -106,7 +107,7 @@ class NumericFieldsTests(TestCase):
         field({'field': 'not_a_number'})
         self.assertFalse(field.is_valid())
         self.assertEqual(field.errors[0].code, 'invalid')
-
+    
     def test_float_validate(self):
         field = FloatField('field')
         field({'field': '0123'})
@@ -118,7 +119,7 @@ class NumericFieldsTests(TestCase):
         field({'field': 'not_a_number'})
         self.assertFalse(field.is_valid())
         self.assertEqual(field.errors[0].code, 'invalid')
-
+    
     def test_decimal_validate(self):
         field = DecimalField('field')
         field({'field': '0123'})
@@ -130,7 +131,7 @@ class NumericFieldsTests(TestCase):
         field({'field': 'not_a_number'})
         self.assertFalse(field.is_valid())
         self.assertEqual(field.errors[0].code, 'invalid')
-
+    
     def test_validators(self):
         """ Using numeric validators of Django """
         for field_class in [IntegerField, FloatField, DecimalField]:
@@ -155,7 +156,7 @@ class BooleanFieldTests(TestCase):
         for value in ['verdadero', 'falso', '____', '']:
             field({'field': value})
             self.assertFalse(field.is_valid(), value)
-
+    
     def test_value(self):
         field = BooleanField('field')
         field({'field': 'True'})
@@ -209,22 +210,50 @@ class CombinedFieldTests(TestCase):
 class DateTimeFieldTests(TestCase):
     
     def test_validate(self):
-        pass
+        field = DateTimeField('field')
+        field({'field': '2020-12-31'})
+        self.assertTrue(field.is_valid(), field.errors)
+        self.assertEqual(field.value, datetime(year=2020, month=12, day=31))
+        field({'field': '2020-30-12'})
+        self.assertFalse(field.is_valid())
+        self.assertEqual(field.errors[0].code, 'wrong_format', field.errors)
+        field({'field': '31-12-2020'})
+        self.assertFalse(field.is_valid())
+        self.assertEqual(field.errors[0].code, 'wrong_format', field.errors)
 
 
-class RangeNumericFieldTests(TestCase):
+class TestingRangeMixin(TestCase):
+    
+    def validate(self, field_class, values, is_true=True):
+        field = field_class('field')
+        field({'field': values})
+        if is_true:
+            self.assertTrue(field.is_valid(), field.errors)
     
     def test_validate(self):
-        pass
+        field_classes = [RangeIntegerField, RangeFloatField, RangeDecimalField]
+        for field_class in field_classes:
+            field = field_class('field')
+            field({'field': '1,10'})
+            self.assertTrue(field.is_valid(), field.errors)
+            field({'field': ',10'})
+            self.assertTrue(field.is_valid(), field.errors)
+            field({'field': '1,'})
+            self.assertTrue(field.is_valid(), field.errors)
     
-    def test_get_query(self):
-        pass
+    def get_validate_query(self, field_class, value_a, value_b):
+        field = field_class('field', equal=False)
+        field({'field': '%s,%s' % (value_a, value_b)})
+        self.assertTrue(field.is_valid(), field.errors)
+        self.assertEqual(str(field.get_query()),
+                         str(Q(**{'field__gt': value_a, 'field__lt': value_b})))
+        field = field_class('field', equal=True)
+        field({'field': '%s,%s' % (value_a, value_b)})
+        self.assertTrue(field.is_valid(), field.errors)
+        self.assertEqual(str(field.get_query()),
+                         str(Q(**{'field__gte': value_a, 'field__lte': value_b})))
 
-
-class RangeDateTimeFieldTests(TestCase):
-    
-    def test_validate(self):
-        pass
-    
     def test_get_query(self):
-        pass
+        self.get_validate_query(RangeIntegerField, 1, 10)
+        self.get_validate_query(RangeFloatField, 1.0, 10.0)
+        self.get_validate_query(RangeDecimalField, Decimal(1), Decimal(10))
