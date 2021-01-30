@@ -24,6 +24,8 @@ pip-delete-this-directory.txt
 
 # PyBuilder
 target/
+*.egg-info
+
 
 # ignore sqlite3 files
 *.sqlite3
