@@ -33,11 +33,10 @@ class Range:
             raise ValidationError('Not enough values, was only given `%s`, it needs at least 2' % len(value),
                                   code='not_enough_values')
         
-        # check if the values are numbers
         new_values = []
         for v in value:
-            if self.allow_empty and len(v) == 0:  # I don't like this... but I'm tired to think in a better solution.
-                pass
+            if self.allow_empty and len(v) == 0:
+                new_values.append(None)  # ignore the value but push a null value
             else:
                 new_values.append(super().validate(v))
         return new_values
