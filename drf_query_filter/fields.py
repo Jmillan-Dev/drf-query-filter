@@ -298,7 +298,7 @@ class CombinedField(Field):
     invalid_characters = r'[\( \)\\/]'
     
     def __init__(self, *args, **kwargs):
-        self.suffix = kwargs.pop('lookup', '')
+        self.lookup = kwargs.pop('lookup', '')
         self.target_field_name = kwargs.pop('target_field_name', '')
         self.output_field = kwargs.pop('output_field', DjangoCharField())
         super().__init__(*args, **kwargs)
@@ -307,7 +307,7 @@ class CombinedField(Field):
                                                                 '_'.join([str(value) for value in self.target_fields])))
     
     def get_suffix(self):
-        return '__%s' % self.suffix if self.suffix else ''
+        return '__%s' % self.lookup if self.lookup else ''
     
     def get_query(self):
         query = Q(**{'%s%s' % (self.target_field_name, self.get_suffix()): self.get_value_query()})
