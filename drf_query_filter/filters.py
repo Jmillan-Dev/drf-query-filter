@@ -4,8 +4,8 @@ from django.db.models import Q
 from rest_framework import filters
 from rest_framework.exceptions import ValidationError
 
-import utils
-import fields
+from drf_query_filter import utils
+from drf_query_filter import fields
 
 
 class QueryParamFilter(filters.BaseFilterBackend):
