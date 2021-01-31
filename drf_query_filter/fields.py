@@ -12,7 +12,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.fields import get_error_detail
 
 from drf_query_filter import mixins
-from drf_query_filter.utils import QueryType
+from drf_query_filter.utils import ConnectorType
 
 
 class Empty:
@@ -20,18 +20,113 @@ class Empty:
     pass
 
 
-class Field:
+class Node:
+    error_messages = {
+        'value_error': 'cannot perform the operation with the given instance'
+    }
+    
+    def __init__(self, children=None, connector=None):
+        self.children: List[Node] = children or list()
+        self.connector: ConnectorType = connector or ConnectorType.AND
+        
+    def __and__(self, other):
+        if not isinstance(other, Node):
+            raise ValueError(self.error_messages['value_error'])
+        
+        if self.connector == ConnectorType.AND:
+            self.children.append(other)
+            return self
+        else:
+            node = Node(children=[self, other], connector=ConnectorType.AND)
+            return node
+        
+    def __or__(self, other):
+        if not isinstance(other, Node):
+            raise ValueError(self.error_messages['value_error'])
+        
+        if self.connector == ConnectorType.OR:
+            self.children.append(other)
+            return self
+        else:
+            node = Node(children=[self, other], connector=ConnectorType.OR)
+            return node
+        
+    def __repr__(self):
+        return '(%(connector)s : (%(children)s))' %\
+               {
+                   'connector': self.connector.value,
+                   'children': ', '.join([repr(child) for child in self.children]),
+               }
+    
+    @property
+    def errors(self) -> Dict:
+        # gather errors of all nested children
+        errors = {}
+        for child in self.children:
+            errors.update(child.errors)
+        return errors
+    
+    def print_tree(self, level=0, final=False, parent_final=False):
+        # this function is for debug purposes
+        if level > 0:
+            tab = '%(space)s%(symbol)s── ' % {
+                'space': ('%s   ' % (' ' if parent_final else '│')) * (level-1),
+                'symbol': '└' if final else '├'
+            }
+        else:
+            tab = ''
+        print('%(tab)s%(connector)s : %(class_name)s(%(name)s)' % {
+            'tab': tab,
+            'connector': self.connector.value,
+            'class_name': self.__class__.__name__,
+            'name': getattr(self, 'field_name', ''),
+        })
+        # print children with level
+        for child in self.children:
+            child.print_tree(level+1, child is self.children[-1], final)
+        
+    def get_filter(self, data) -> Tuple[Dict, Q]:
+        annotate = {}
+        query = Q(_connector=self.connector.value)
+        for child in self.children:
+            _annotate, _query = child.get_filter(data)
+            annotate.update(_annotate)
+            if self.connector == ConnectorType.AND:
+                query &= _query
+            else:
+                query |= _query
+        return annotate, query
+    
+    def filter(self, queryset, data, raise_exceptions=False) -> Tuple[Any, Dict]:
+        # this gets the query and annotate of all children and itself
+        annotate, query = self.get_filter(data)
+        
+        # check if there is no error if raise_exceptions is True
+        errors = self.errors
+        if errors and raise_exceptions:
+            return queryset, errors
+        
+        if annotate:
+            queryset.annotate(**annotate)
+        if query:
+            queryset.filter(query)
+        
+        return queryset, {}
+
+
+class Field(Node):
+    
     def __init__(self,
                  field_name: str,
                  target_fields: Optional[Union[str, List, Tuple]] = None,
                  validators: List[Callable] = None,
-                 union_type: QueryType = QueryType.AND):
+                 connector: ConnectorType = ConnectorType.AND):
         """
         Base field
         :param field_name: The name in the query params of the url
         :param target_fields: The target fields in the queryset, This can be a str alone or multiple of them
         :param validators: A list of class validators to call in the validation process
-        :param union_type: Type of union in the target fields
+        :param connector: Type of connector in the target fields
         """
         self.field_name: str = field_name
         assert self.field_name, '%s.field_name cannot be empty.' % self.__class__.__name__
@@ -48,12 +143,13 @@ class Field:
             self.target_fields = [self.target_fields]
         
         self.validators: List[Callable] = validators
-        self.query_type: QueryType = union_type
         
         self._raw_value: Any = Empty()  # value got from the query param request
         self._value: Any = self._raw_value  # transformed value
         self.no_value: bool = True  # Flag to check if this
-        self.errors: List = []  # the list of errors we got
+        self._errors: List = []  # the list of errors we got
+        
+        super().__init__(None, connector=connector)
     
     def __call__(self, query_data: Dict) -> bool:
         """
@@ -66,6 +162,31 @@ class Field:
         else:
             self._raw_value = Empty()
             return False
+        
+    def __repr__(self):
+        if self.children:
+            return '%(connector)s : (%(field_name)s, %(children)s)' %\
+                   {
+                       'connector': self.connector.value,
+                       'field_name': self.field_name,
+                       'children': ', '.join([repr(child) for child in self.children]),
+                   }
+        else:
+            return '%(field_name)s' % {'field_name': self.field_name}
+    
+    @property
+    def value(self) -> Any:
+        assert not isinstance(self._value, Empty), 'you must call is_valid first'
+        return self._value
+    
+    @property
+    def errors(self) -> Dict:
+        errors = {}
+        if self._errors:
+            errors.update({self.field_name: self._errors})
+        for child in self.children:
+            errors.update(child.errors)
+        return errors
     
     def validate(self, value: Any) -> None:
         """
@@ -82,12 +203,12 @@ class Field:
                 try:
                     validator(value)
                 except ValidationError as exc:
-                    self.errors.extend(exc.detail)
+                    self._errors.extend(exc.detail)
                 except DjangoValidationError as exc:
-                    self.errors.extend(get_error_detail(exc))
+                    self._errors.extend(get_error_detail(exc))
     
     def is_valid(self) -> bool:
-        self.errors = []  # Clean all the previous errors
+        self._errors = []  # Clean all the previous errors
         
         assert not isinstance(self._raw_value, Empty),\
             'you cannot call is_valid without giving a value first'
@@ -95,30 +216,25 @@ class Field:
         try:
             self._value = self.validate(self._raw_value)
         except ValidationError as exc:
-            self.errors.extend(exc.detail)
+            self._errors.extend(exc.detail)
         except DjangoValidationError as exc:
-            self.errors.extend(get_error_detail(exc))
+            self._errors.extend(get_error_detail(exc))
         else:
             self.run_validators(self._value)
         
-        return len(self.errors) == 0
-    
-    @property
-    def value(self) -> Any:
-        assert not isinstance(self._value, Empty), 'you must call is_valid first'
-        return self._value
+        return len(self._errors) == 0
     
     def get_value_query(self) -> Any:
         """ This should be overwritten if the desire data needs to be manipulated for the query """
         return self.value
     
     def get_query(self) -> Q:
-        query = Q()
+        query = Q(_connector=self.connector.value)
         value = self.get_value_query()
         for field in self.target_fields:
-            if self.query_type == QueryType.AND:
+            if self.connector == ConnectorType.AND:
                 query &= Q(**{field: value})
-            elif self.query_type == QueryType.OR:
+            elif self.connector == ConnectorType.OR:
                 query |= Q(**{field: value})
         
         return query
@@ -126,6 +242,22 @@ class Field:
     def get_annotate(self) -> Dict:
         """ This should be overwritten if the field requires to annotate custom fields in the query """
         return {}
+    
+    def get_filter(self, data) -> Tuple[Dict, Q]:
+        if self(data) and self.is_valid():
+            annotate = self.get_annotate()
+            query = self.get_query()
+        else:
+            annotate = {}
+            query = Q(_connector=self.connector)
+        for child in self.children:
+            _annotate, _query = child.get_filter(data)
+            annotate.update(_annotate)
+            if self.connector == ConnectorType.AND:
+                query &= _query
+            else:
+                query |= _query
+        return annotate, query
 
 
 class IntegerField(Field):
@@ -291,7 +423,7 @@ class ExistsField(Field):
         return self.return_value
 
 
-class CombinedField(Field):
+class CombineField(Field):
     """
     Combine Fields and query from that result
     """
@@ -306,11 +438,11 @@ class CombinedField(Field):
             self.target_field_name = re.sub(r'__+', '_', re.sub(self.invalid_characters, '_',
                                                                 '_'.join([str(value) for value in self.target_fields])))
     
-    def get_suffix(self):
+    def get_lookup(self):
         return '__%s' % self.lookup if self.lookup else ''
     
     def get_query(self):
-        query = Q(**{'%s%s' % (self.target_field_name, self.get_suffix()): self.get_value_query()})
+        query = Q(**{'%s%s' % (self.target_field_name, self.get_lookup()): self.get_value_query()})
         return query
     
     def get_annotate(self):

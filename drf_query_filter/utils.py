@@ -1,9 +1,9 @@
 from enum import Enum
 
 
-class QueryType(Enum):
-    AND = 1
-    OR = 2
+class ConnectorType(Enum):
+    AND = 'AND'
+    OR = 'OR'
     
     @classmethod
     def has_value(cls, value: int) -> bool:

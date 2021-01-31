@@ -1,7 +1,7 @@
 from django.db.models import Q
 from rest_framework.exceptions import ValidationError
 
-from drf_query_filter.utils import QueryType
+from drf_query_filter.utils import ConnectorType
 
 
 class Range:
@@ -42,7 +42,7 @@ class Range:
         return new_values
     
     def get_query(self):
-        query = Q()
+        query = Q(_connector=self.connector)
         for target_field_gt, target_field_lt in self.get_target_fields():
             query_dict = {}
             if self.value[0]:
@@ -50,9 +50,9 @@ class Range:
             if self.value[1]:
                 query_dict[target_field_lt] = self.value[1]
             
-            if self.query_type == QueryType.AND:
+            if self.connector == ConnectorType.AND:
                 query &= Q(**query_dict)
-            elif self.query_type == QueryType.OR:
+            elif self.connector == ConnectorType.OR:
                 query |= Q(**query_dict)
         return query
 
