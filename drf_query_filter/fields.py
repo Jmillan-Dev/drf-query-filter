@@ -66,25 +66,6 @@ class Node:
             errors.update(child.errors)
         return errors
     
-    def print_tree(self, level=0, final=False, parent_final=False):
-        # this function is for debug purposes
-        if level > 0:
-            tab = '%(space)s%(symbol)s── ' % {
-                'space': ('%s   ' % (' ' if parent_final else '│')) * (level-1),
-                'symbol': '└' if final else '├'
-            }
-        else:
-            tab = ''
-        print('%(tab)s%(connector)s : %(class_name)s(%(name)s)' % {
-            'tab': tab,
-            'connector': self.connector.value,
-            'class_name': self.__class__.__name__,
-            'name': getattr(self, 'field_name', ''),
-        })
-        # print children with level
-        for child in self.children:
-            child.print_tree(level+1, child is self.children[-1], final)
-        
     def get_filter(self, data) -> Tuple[Dict, Q]:
         annotate = {}
         query = Q(_connector=self.connector.value)
