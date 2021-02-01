@@ -52,11 +52,13 @@ class Node:
             return node
         
     def __repr__(self):
-        return '(%(connector)s : (%(children)s))' %\
+        if self.children:
+            return '(%(connector)s: [%(children)s])' %\
                {
                    'connector': self.connector.value,
                    'children': ', '.join([repr(child) for child in self.children]),
                }
+        return '`EMPTY NODE`'
     
     @property
     def errors(self) -> Dict:
@@ -66,21 +68,21 @@ class Node:
             errors.update(child.errors)
         return errors
     
-    def get_filter(self, data) -> Tuple[Dict, Q]:
+    def get_filter(self, data) -> Tuple[Q, Dict]:
         annotate = {}
         query = Q(_connector=self.connector.value)
         for child in self.children:
-            _annotate, _query = child.get_filter(data)
+            _query, _annotate = child.get_filter(data)
             annotate.update(_annotate)
             if self.connector == ConnectorType.AND:
                 query &= _query
             else:
                 query |= _query
-        return annotate, query
+        return query, annotate
     
     def filter(self, queryset, data, raise_exceptions=False) -> Tuple[Any, Dict]:
         # this gets the query and annotate of all children and itself
-        annotate, query = self.get_filter(data)
+        query, annotate = self.get_filter(data)
         
         # check if there is no error if raise_exceptions is True
         errors = self.errors
@@ -146,14 +148,13 @@ class Field(Node):
         
     def __repr__(self):
         if self.children:
-            return '%(connector)s : (%(field_name)s, %(children)s)' %\
+            return '(%(connector)s: [%(field_name)s, %(children)s])' %\
                    {
                        'connector': self.connector.value,
                        'field_name': self.field_name,
                        'children': ', '.join([repr(child) for child in self.children]),
                    }
-        else:
-            return '%(field_name)s' % {'field_name': self.field_name}
+        return '%(field_name)s' % {'field_name': self.field_name}
     
     @property
     def value(self) -> Any:
@@ -224,7 +225,7 @@ class Field(Node):
         """ This should be overwritten if the field requires to annotate custom fields in the query """
         return {}
     
-    def get_filter(self, data) -> Tuple[Dict, Q]:
+    def get_filter(self, data) -> Tuple[Q, Dict]:
         if self(data) and self.is_valid():
             annotate = self.get_annotate()
             query = self.get_query()
@@ -232,13 +233,13 @@ class Field(Node):
             annotate = {}
             query = Q(_connector=self.connector)
         for child in self.children:
-            _annotate, _query = child.get_filter(data)
+            _query, _annotate = child.get_filter(data)
             annotate.update(_annotate)
             if self.connector == ConnectorType.AND:
                 query &= _query
             else:
                 query |= _query
-        return annotate, query
+        return query, annotate
 
 
 class IntegerField(Field):
