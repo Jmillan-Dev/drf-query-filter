@@ -10,11 +10,11 @@ install-requirements-dev:
 test:
 	python -m pytest
 
-build:
-	python -m setup.py sdist bdist_wheel
+build-dist:
+	python setup.py sdist bdist_wheel
 
 publish-test:
-	python -m twine upload --repository testpypi dist/*
+	python -m twine upload --repository testpypi dist/* --verbose
 
 publish:
 	python -m twine upload dist/*
