@@ -61,7 +61,7 @@ by attribute:
 ```python
 query_param = [
     fields.Field('id') & fields.Field('username', 'username__icontains'),
-    fields.CombineField('full_name', ['first_name', V(' '), 'last_name'])
+    fields.ConcatField('full_name', ['first_name', V(' '), 'last_name'])
 ]
 ```
 or by a callable: 
@@ -69,7 +69,7 @@ or by a callable:
 def get_query_param(self):
     return [
         fields.Field('id') & fields.Field('username', 'username__icontains'),
-        fields.CombineField('full_name', ['first_name', V(' '), 'last_name'])
+        fields.ConcatField('full_name', ['first_name', V(' '), 'last_name'])
     ]
 ```
 
@@ -106,7 +106,7 @@ In an example like this:
 query_params = [
     fields.Field('id') & fields.Field('username', 'user__username__icontains'),
     fields.RangeDateTimeField('date_created', equal=True) | fields.BooleanField('vip', 'vip_status'),
-    fields.CombineField('full_name', ['user__first_name', V(' '), 'user__last_name'], lookup='icontains'),
+    fields.ConcatField('full_name', ['user__first_name', V(' '), 'user__last_name'], lookup='icontains'),
 ]
 ```
 

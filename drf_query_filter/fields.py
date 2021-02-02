@@ -415,9 +415,9 @@ class ExistsField(Field):
         return self.return_value
 
 
-class CombineField(Field):
+class ConcatField(Field):
     """
-    Combine Fields and query from that result
+    Concatenate Fields and query from that result
     """
     invalid_characters = r'[\( \)\\/]'
     

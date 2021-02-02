@@ -20,7 +20,7 @@ from drf_query_filter.fields import (
     ChoicesField,
     DecimalField,
     IntegerField,
-    CombineField,
+    ConcatField,
     DateTimeField,
     RangeFloatField,
     RangeIntegerField,
@@ -191,19 +191,19 @@ class CombinedFieldTests(TestCase):
     
     def test_annotate(self):
         # we cannot really compare the Concat values so we just compare the result field name generated
-        field = CombineField('field', ['field_one', 'field_two'])
+        field = ConcatField('field', ['field_one', 'field_two'])
         self.assertTrue('field_one_field_two', field.get_annotate())
-        field = CombineField('field', ['field_one__element', 'field__other'])
+        field = ConcatField('field', ['field_one__element', 'field__other'])
         self.assertTrue('field_one_element_field_other', field.get_annotate())
-        field = CombineField('field', ['field_one', 'field_two'], target_field_name='field_annotate')
+        field = ConcatField('field', ['field_one', 'field_two'], target_field_name='field_annotate')
         self.assertIn('field_annotate', field.get_annotate())
     
     def test_get_query(self):
-        field = CombineField('field', ['field_one', 'field_two'])
+        field = ConcatField('field', ['field_one', 'field_two'])
         field({'field': 'value'})
         field.is_valid()
         self.assertEqual(str(field.get_query()), str(Q(field_one_field_two='value')))
-        field = CombineField('field', ['field_one', 'field_two'], lookup='icontains')
+        field = ConcatField('field', ['field_one', 'field_two'], lookup='icontains')
         field({'field': 'value'})
         field.is_valid()
         self.assertEqual(str(field.get_query()), str(Q(field_one_field_two__icontains='value')))
