@@ -8,7 +8,8 @@ from django.core.validators import (
     MinValueValidator,
 )
 from django.db.models import Q
-from django.test import TestCase
+from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from drf_query_filter.fields import (
     Empty,
@@ -25,6 +26,7 @@ from drf_query_filter.fields import (
     RangeIntegerField,
     RangeDecimalField,
     RangeDateTimeField,
+    default_timezone,
 )
 
 
@@ -220,6 +222,14 @@ class DateTimeFieldTests(TestCase):
         field({'field': '31-12-2020'})
         self.assertFalse(field.is_valid())
         self.assertEqual(field._errors[0].code, 'wrong_format', field._errors)
+        
+    @override_settings(USE_TZ=True)
+    def test_validate_forcing_timezone(self):
+        field = DateTimeField('field')
+        field({'field': '2020-1-1'})
+        self.assertTrue(field.is_valid(), field._errors)
+        self.assertNotEqual(field.value, datetime(year=2020, month=1, day=1))
+        self.assertEqual(field.value, timezone.make_aware(datetime(year=2020, month=1, day=1), default_timezone()))
 
 
 class TestingRangeMixin(TestCase):
@@ -240,7 +250,15 @@ class TestingRangeMixin(TestCase):
             self.assertTrue(field.is_valid(), field._errors)
             field({'field': '1,'})
             self.assertTrue(field.is_valid(), field._errors)
-    
+            
+        field = RangeDateTimeField('field')
+        field({'field': '2020-1-1,2020-12-31'})
+        self.assertTrue(field.is_valid(), field._errors)
+        field({'field': ',2020-12-31'})
+        self.assertTrue(field.is_valid(), field._errors)
+        field({'field': '2020-1-1,'})
+        self.assertTrue(field.is_valid(), field._errors)
+
     def get_validate_query(self, field_class, value_a, value_b):
         field = field_class('field', equal=False)
         field({'field': '%s,%s' % (value_a, value_b)})

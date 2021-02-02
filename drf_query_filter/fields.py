@@ -3,10 +3,12 @@ import re
 import decimal
 from typing import List, Callable, Union, Tuple, Dict, Any, Optional
 
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models.fields import CharField as DjangoCharField
 from django.db.models.functions import Concat
 from django.db.models.query_utils import Q
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 from rest_framework.fields import get_error_detail
@@ -313,6 +315,10 @@ class RangeDecimalField(mixins.Range,
     pass
 
 
+def default_timezone():
+    return timezone.get_current_timezone() if settings.USE_TZ else None
+
+
 class DateTimeField(Field):
     """
     Field that only accepts values that can be parsed into date time
@@ -322,10 +328,14 @@ class DateTimeField(Field):
     def __init__(self, *args, date_format: str = None, **kwargs):
         self.date_format = date_format or self.default_date_format
         super().__init__(*args, **kwargs)
-    
+
     def validate(self, value):
         try:
-            return datetime.datetime.strptime(value, self.date_format)
+            date = datetime.datetime.strptime(value, self.date_format)
+            _timezone = default_timezone()
+            if _timezone:
+                return timezone.make_aware(date, _timezone)
+            return date
         except ValueError:
             raise ValidationError('Value %s does not have the correct format, should be %s' %
                                   (value, self.date_format), code='wrong_format')
