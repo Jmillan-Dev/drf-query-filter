@@ -355,29 +355,19 @@ class ChoicesField(Field):
     this can handle case sensitive and custom messages for the error thrown
     """
     
-    default_values = []
-    default_case_sensitive = False
+    default_choices = []
     default_validate_message = 'Value `%s` is not a valid option, Options are: %s'
     
     def __init__(self, *args,
                  choices: List[str] = None,
-                 case_sensitive: bool = None,
                  validate_message: str = "",
                  **kwargs):
-        self.choices = choices or self.default_values
-        self.case_sensitive = case_sensitive or self.default_case_sensitive
+        self.choices = choices or self.default_choices
         self.validate_message = validate_message or self.default_validate_message
         super().__init__(*args, **kwargs)
     
     def validate(self, value):
-        clean_choices = self.choices
-        # If case sensitive is on lower the values in the incoming value
-        # and make sure that choices are also clean
-        if not self.case_sensitive:
-            value = value.lower()
-            clean_choices = [valid_value.lower() for valid_value in clean_choices]
-        
-        if value not in clean_choices:
+        if value not in self.choices:
             raise ValidationError(detail=self.validate_message % (value, self.choices),
                                   code='not_in_choices')
         return value
@@ -394,7 +384,6 @@ class BooleanField(ChoicesField):
         # ignore the kwargs of choices
         kwargs['choices'] = ['true', 'false', '1', '0']
         kwargs['validate_message'] = 'Value `%s` is not a valid boolean. Options are: %s'
-        kwargs['case_sensitive'] = False
         super().__init__(*args, **kwargs)
     
     def validate(self, value):

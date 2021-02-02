@@ -148,11 +148,32 @@ class NumericFieldsTests(TestCase):
             self.assertEqual(field._errors[0].code, 'max_value')
 
 
+class ChoicesFieldTests(TestCase):
+    
+    def test_validate(self):
+        field = ChoicesField('field', choices=['green', 'red', 'yellow'])
+        
+        for value in ['green', 'red', 'yellow']:
+            field({'field': value})
+            self.assertTrue(field.is_valid(), field._errors)
+            
+        for value in ['greenly', '']:
+            field({'field': value})
+            self.assertFalse(field.is_valid())
+            self.assertEqual(field._errors[0].code, 'not_in_choices')
+            
+        field = ChoicesField('field', choices=['car', 'Plane', 'BOAT'])
+        for value in ['Car', 'plane', 'bOAT']:
+            field({'field': value})
+            self.assertFalse(field.is_valid())
+            self.assertEqual(field._errors[0].code, 'not_in_choices')
+
+
 class BooleanFieldTests(TestCase):
     
     def test_validate(self):
         field = BooleanField('field')
-        for value in ['true', 'false', 'FaLsE', '0', '1']:
+        for value in ['true', 'false', '0', '1']:
             field({'field': value})
             self.assertTrue(field.is_valid(), value)
         for value in ['verdadero', 'falso', '____', '']:
@@ -161,33 +182,15 @@ class BooleanFieldTests(TestCase):
     
     def test_value(self):
         field = BooleanField('field')
-        field({'field': 'True'})
+        field({'field': 'true'})
         field.is_valid()
         self.assertTrue(field.value)
-        field({'field': 'False'})
+        field({'field': 'false'})
         field.is_valid()
         self.assertFalse(field.value)
 
 
-class ChoicesFieldTests(TestCase):
-    
-    def test_validate(self):
-        field = ChoicesField('field', choices=['green', 'red', 'yellow'])
-        for value in ['Green', 'rEd', 'YELLOW', 'yellow']:
-            field({'field': value})
-            self.assertTrue(field.is_valid())
-        for value in ['greenly', '']:
-            field({'field': value})
-            self.assertFalse(field.is_valid())
-            self.assertEqual(field._errors[0].code, 'not_in_choices')
-        field = ChoicesField('field', choices=['car', 'Plane', 'BOAT'], case_sensitive=True)
-        for value in ['Car', 'plane', 'bOAT']:
-            field({'field': value})
-            self.assertFalse(field.is_valid())
-            self.assertEqual(field._errors[0].code, 'not_in_choices')
-
-
-class CombinedFieldTests(TestCase):
+class ConcatFieldTests(TestCase):
     
     def test_annotate(self):
         # we cannot really compare the Concat values so we just compare the result field name generated
