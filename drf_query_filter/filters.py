@@ -12,14 +12,14 @@ class QueryParamFilter(filters.BaseFilterBackend):
     
     # Look ups for attrs in view
     query_param_attr = 'query_params'
-    query_param_func = 'get_query_params'
+    query_param_call = 'get_query_params'
     query_raise_exceptions = 'query_raise_exceptions'
     
     def get_raise_exceptions(self, view) -> bool:
         return getattr(view, self.query_raise_exceptions, None) or self.raise_exceptions
     
     def get_query_params(self, view) -> List[fields.Node]:
-        get_query_params = getattr(view, self.query_param_func, None)
+        get_query_params = getattr(view, self.query_param_call, None)
         if callable(get_query_params):
             return get_query_params()
         else:
@@ -32,6 +32,6 @@ class QueryParamFilter(filters.BaseFilterBackend):
             queryset, field_errors = field.filter(queryset, request.query_params, self.get_raise_exceptions(view))
             if field_errors:
                 errors.update(field_errors)
-        if errors:
+        if errors and self.get_raise_exceptions(view):
             raise ValidationError(errors)
         return queryset
