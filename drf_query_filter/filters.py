@@ -28,6 +28,10 @@ class QueryParamFilter(filters.BaseFilterBackend):
     def filter_queryset(self, request, queryset, view):
         query_fields = self.get_query_params(view)
         errors = {}
+        query_params = request.query_params
+        if not query_params:
+            return queryset
+            
         for field in query_fields:
             queryset, field_errors = field.filter(queryset, request.query_params, self.get_raise_exceptions(view))
             if field_errors:

@@ -92,9 +92,9 @@ class Node:
             return queryset, errors
         
         if annotate:
-            queryset.annotate(**annotate)
+            queryset = queryset.annotate(**annotate)
         if query:
-            queryset.filter(query)
+            queryset = queryset.filter(query)
         
         return queryset, {}
 
