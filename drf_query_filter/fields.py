@@ -23,7 +23,7 @@ class Empty:
 
 
 class Node:
-    error_messages = {
+    internal_error_messages = {
         'value_error': 'cannot perform the operation with the given instance'
     }
     
@@ -33,7 +33,7 @@ class Node:
         
     def __and__(self, other):
         if not isinstance(other, Node):
-            raise ValueError(self.error_messages['value_error'])
+            raise ValueError(self.internal_error_messages['value_error'])
         
         if self.connector == ConnectorType.AND:
             self.children.append(other)
@@ -44,7 +44,7 @@ class Node:
         
     def __or__(self, other):
         if not isinstance(other, Node):
-            raise ValueError(self.error_messages['value_error'])
+            raise ValueError(self.internal_error_messages['value_error'])
         
         if self.connector == ConnectorType.OR:
             self.children.append(other)
@@ -64,7 +64,7 @@ class Node:
     
     @property
     def errors(self) -> Dict:
-        # gather errors of all nested children
+        # Gather errors of all the nested children
         errors = {}
         for child in self.children:
             errors.update(child.errors)
@@ -83,10 +83,10 @@ class Node:
         return query, annotate
     
     def filter(self, queryset, data, raise_exceptions=False) -> Tuple[Any, Dict]:
-        # this gets the query and annotate of all children and itself
+        # This gets the query and annotate of all children and itself
         query, annotate = self.get_filter(data)
         
-        # check if there is no error if raise_exceptions is True
+        # Check if there is no error if raise_exceptions is True
         errors = self.errors
         if errors and raise_exceptions:
             return queryset, errors
@@ -118,10 +118,8 @@ class Field(Node):
         
         self.target_fields = target_fields or self.field_name
         
-        assert isinstance(self.target_fields, str) or \
-               isinstance(self.target_fields, list) or \
-               isinstance(self.target_fields, tuple), (
-            'given target_fields is a `%s`, it should be a str or a list/tuple.' % type(self.target_fields)
+        assert isinstance(self.target_fields, (str, list, tuple)), (
+            'given target_fields is a `%s`, expected a str or a list/tuple.' % type(self.target_fields)
         )
         
         if isinstance(self.target_fields, str):
@@ -138,7 +136,7 @@ class Field(Node):
     
     def __call__(self, query_data: Dict) -> bool:
         """
-        Try to find the value from the given field, if it doesn't find it it sets the flag no_value as True
+        Try to find the value from the given field, if it doesn't find it then sets _raw_value as Empty()
         """
         
         if self.field_name in query_data:
@@ -180,10 +178,10 @@ class Field(Node):
         return value
     
     def run_validators(self, value: Any) -> None:
-        """ This uses the validation style like in the fields of rest_framework """
+        """ This runs the validators like the fields in rest_framework """
         if self.validators:
             for validator in self.validators:
-                # run all the validators and gather all the errors thrown by them
+                # Run all the validators and gather all the errors raised by them
                 try:
                     validator(value)
                 except ValidationError as exc:
@@ -212,6 +210,10 @@ class Field(Node):
         """ This should be overwritten if the desire data needs to be manipulated for the query """
         return self.value
     
+    def get_annotate(self) -> Dict:
+        """ This should be overwritten if the field requires to annotate custom fields in the query """
+        return {}
+    
     def get_query(self) -> Q:
         query = Q(_connector=self.connector.value)
         value = self.get_value_query()
@@ -222,10 +224,6 @@ class Field(Node):
                 query |= Q(**{field: value})
         
         return query
-    
-    def get_annotate(self) -> Dict:
-        """ This should be overwritten if the field requires to annotate custom fields in the query """
-        return {}
     
     def get_filter(self, data) -> Tuple[Q, Dict]:
         if self(data) and self.is_valid():
@@ -291,7 +289,6 @@ class RangeFloatField(mixins.Range,
     pass
 
 
-# TODO is still missing some validation unique to the Decimal type
 class DecimalField(Field):
     """
     Field that only accepts Decimal values
@@ -302,9 +299,17 @@ class DecimalField(Field):
     
     def validate(self, value):
         try:
-            return decimal.Decimal(value)
+            value = decimal.Decimal(value)
         except (decimal.InvalidOperation, TypeError, ValueError):
             raise ValidationError(self.error_messages['invalid'] % {'value': value}, code='invalid')
+        
+        if value.is_nan():
+            raise ValidationError(self.error_messages['invalid'] % {'value': value}, code='invalid')
+        
+        if value in (decimal.Decimal('Inf'), decimal.Decimal('-Inf')):
+            raise ValidationError(self.error_messages['invalid'] % {'value': value}, code='invalid')
+        
+        return value
 
 
 class RangeDecimalField(mixins.Range,
@@ -323,6 +328,9 @@ class DateTimeField(Field):
     """
     Field that only accepts values that can be parsed into date time
     """
+    error_messages = {
+        'wrong_format': 'Value %(value)s does not have the correct format, should be %(date_format)s'
+    }
     default_date_format = '%Y-%m-%d'
     
     def __init__(self, *args, date_format: str = None, **kwargs):
@@ -337,8 +345,8 @@ class DateTimeField(Field):
                 return timezone.make_aware(date, _timezone)
             return date
         except ValueError:
-            raise ValidationError('Value %s does not have the correct format, should be %s' %
-                                  (value, self.date_format), code='wrong_format')
+            raise ValidationError(self.error_messages['wrong_format'] % {
+                'value': value, 'date_format': self.date_format}, code='wrong_format')
 
 
 class RangeDateTimeField(mixins.Range,
@@ -352,11 +360,11 @@ class RangeDateTimeField(mixins.Range,
 class ChoicesField(Field):
     """
     Field made to support multiple options.
-    this can handle case sensitive and custom messages for the error thrown
+    This can handle custom messages for the error raised
     """
     
     default_choices = []
-    default_validate_message = 'Value `%s` is not a valid option, Options are: %s'
+    default_validate_message = 'Value `%(value)s` is not a valid option, Options are: %(choices)s'
     
     def __init__(self, *args,
                  choices: List[str] = None,
@@ -368,32 +376,35 @@ class ChoicesField(Field):
     
     def validate(self, value):
         if value not in self.choices:
-            raise ValidationError(detail=self.validate_message % (value, self.choices),
-                                  code='not_in_choices')
+            raise ValidationError(detail=self.validate_message % {
+                'value': value, 'choices': self.choices
+            }, code='not_in_choices')
         return value
 
 
 class BooleanField(ChoicesField):
     """
     Field that only accepts boolean related strings
-    Field that only accepts some valid values in the data of query params
-    this values are boolean related
     """
     
     def __init__(self, *args, **kwargs):
         # ignore the kwargs of choices
-        kwargs['choices'] = ['true', 'false', '1', '0']
-        kwargs['validate_message'] = 'Value `%s` is not a valid boolean. Options are: %s'
+        kwargs['choices'] = [
+            'true', 'True', 't', 'T', '1',
+            'false', 'False', 'f', 'F', '0'
+        ]
+        kwargs['validate_message'] = 'Value `%(value)s` is not a valid boolean. Options are: %(choices)s'
         super().__init__(*args, **kwargs)
     
     def validate(self, value):
         value = super().validate(value)
-        return value in ['true', '1']
+        return value in ['true', 'True', 't', 'T', '1']
 
 
 class ExistsField(Field):
     """
-    Field that returns a set value if the field exists in the Query params
+    Field that returns a set value if the field exists in the Query params.
+    This Field doesn't care for the value given
     """
     
     def __init__(self, *args, return_value=None, **kwargs):

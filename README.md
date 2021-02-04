@@ -4,11 +4,11 @@
 
 ## Table of contents
 
-* [Installation](#Installation)
-* [Usage](#Usage)
-    * [QuickStart](#QuickStart)
-    * [Fields](#Fields)
-* [How does it query?](#How does it query?)
+* [Installation](#installation)
+* [Usage](#usage)
+    * [QuickStart](#quickstart)
+    * [Fields](#fields)
+* [How does it work?](#how-does-it-work)
 
 ## Installation
 
@@ -80,15 +80,16 @@ the case of using `fields.Field('username')` it will try to search for the key *
 
 > http://localhost/path/to/somewhere/? **username** =value
 
-with the param **target_fields** of the Field you can tell what are the target fields of the model.
+With the param **target_fields** of the Field one can tell which are the target fields of the model.
 
-Not assigning the target_field will assume that the name of the field is the same for the name of the target field.
+Not assigning the **target_field** will assume that the name of the field is the same for the name of the target field.
 
 ```python
 fields.Field('username')  # it will user `username` as the target field.
 ``` 
 
-To tell what target_field it is use the target_fields, using only a str will target only one field in the model.
+To tell what **target_field** it is use the param **target_fields**,
+using only a str will target only one field in the model.
 
 ```python
 fields.Field('search', 'username')
@@ -100,11 +101,11 @@ Using a list or a tuple will target multiple fields of the model.
 fields.Field('search', ['username', 'first_name', 'last_name'])
 ```
 
-Meaning that the result in the field `search` will be assigned to all the target fields.
+Meaning that the result in the field `search` *(in this case)* will be assigned to all the target fields.
 
-### How does it query?
+### How does it work?
 
-In an example like this:
+With the following fields arraigned like this:
 
 ```python
 query_params = [
@@ -127,8 +128,8 @@ queryset = queryset\
 
 If some values are not found in the request, they are ignored, for example:
 
-If the request doesn't contain `full_name` it will ignore the **annotate** and **filter**
-of the field. and instead it will only do the first two.
+If the request doesn't contain `full_name` it will ignore the last field (the **annotate** and **filter**), 
+And instead it will only do the first two.
 
 **Request:** `/?id=9&username=value&date_created=2021-1-1,2021-12-31&vip=true`
 
@@ -139,7 +140,7 @@ queryset = queryset.filter(Q(date_created__gte=datetime(year=2021, month=1, day=
                            Q(vip_status=True))
 ```
 
-another example where we only ask for the *id* and *full_name*:
+Another example where we only ask for the *id* and *full_name*:
 
 **Request:** `/?id=10&full_name=Something+Something`
 
