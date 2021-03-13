@@ -14,7 +14,7 @@ install_requires = read_file('requirements.txt').strip().splitlines()
 
 setuptools.setup(
     name='drf-query-filter',
-    version='0.1.3',
+    version='0.1.4',
     packages=['drf_query_filter'],
     description=(
         'A django app to apply filters on drf queryset '

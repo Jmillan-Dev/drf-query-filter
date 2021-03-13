@@ -7,13 +7,15 @@ from drf_query_filter.utils import ConnectorType
 
 
 class SimpleView:
-    def __init__(self, raise_exceptions=False):
-        self.query_raise_exceptions = raise_exceptions
-        
     query_params = [
         fields.IntegerField('id') & fields.ChoicesField('state', choices=['A', 'S', 'N']),
         fields.Field('search', ['name__icontains', 'category__name'], connector=ConnectorType.OR)
     ]
+
+    def __init__(self, raise_exceptions=False, **kwargs):
+        self.query_raise_exceptions = raise_exceptions
+        if 'query_params' in kwargs:
+            self.query_params = kwargs.get('query_params')
 
 
 class FakeQuerySet:
@@ -23,9 +25,11 @@ class FakeQuerySet:
         
     def annotate(self, **kwargs):
         self.annotate.append(kwargs)
+        return self
         
     def filter(self, query):
         self.query.append(query)
+        return self
 
 
 class FakeRequest:
@@ -78,3 +82,11 @@ class FilterTests(TestCase):
                 request=FakeRequest(id='10', state='a'),
                 view=SimpleView(raise_exceptions=True), queryset=queryset
             )
+
+    def test_with_no_query_param_fields(self):
+        f = filters.QueryParamFilter()
+        queryset = FakeQuerySet()
+        view = SimpleView(query_params=None)
+        f.filter_queryset(request=FakeRequest(ignore=True),view=view, queryset=queryset)
+
+

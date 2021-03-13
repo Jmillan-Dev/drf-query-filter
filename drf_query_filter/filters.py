@@ -31,6 +31,9 @@ class QueryParamFilter(filters.BaseFilterBackend):
         query_params = request.query_params
         if not query_params:
             return queryset
+
+        if not query_fields:  # do nothing if no fields are found
+            return queryset
             
         for field in query_fields:
             queryset, field_errors = field.filter(queryset, request.query_params, self.get_raise_exceptions(view))
