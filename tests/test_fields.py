@@ -189,6 +189,15 @@ class BooleanFieldTests(TestCase):
         field.is_valid()
         self.assertFalse(field.value)
 
+    def test_invert(self):
+        field = BooleanField('field', invert=True)
+        field({'field': 'true'})
+        field.is_valid()
+        self.assertFalse(field.value)
+        field({'field': 'false'})
+        field.is_valid()
+        self.assertTrue(field.value)
+
 
 class ConcatFieldTests(TestCase):
     

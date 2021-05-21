@@ -387,18 +387,19 @@ class BooleanField(ChoicesField):
     Field that only accepts boolean related strings
     """
     
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, invert=False, **kwargs):
         # ignore the kwargs of choices
         kwargs['choices'] = [
             'true', 'True', 't', 'T', '1',
             'false', 'False', 'f', 'F', '0'
         ]
+        self.invert = invert
         kwargs['validate_message'] = 'Value `%(value)s` is not a valid boolean. Options are: %(choices)s'
         super().__init__(*args, **kwargs)
     
     def validate(self, value):
         value = super().validate(value)
-        return value in ['true', 'True', 't', 'T', '1']
+        return (value in ['true', 'True', 't', 'T', '1']) ^ self.invert
 
 
 class ExistsField(Field):
