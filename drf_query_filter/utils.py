@@ -19,12 +19,14 @@ def print_tree(node, level=0, final=False, parent_final=False):
         }
     else:
         tab = ''
+
     print('%(tab)s%(connector)s %(class_name)s(%(name)s)' % {
         'tab': tab,
         'connector': node.connector.value + ':' if node.children else '',
         'class_name': node.__class__.__name__,
         'name': getattr(node, 'field_name', ''),
     })
+
     # print children with level
     for child in node.children:
-        print_tree(node, level + 1, child is node.children[-1], final)
+        print_tree(child, level + 1, child is node.children[-1], final)
