@@ -1,0 +1,19 @@
+[[source]]
+url = 'https://pypi.python.org/simple'
+verify_ssl = true
+name = 'pypi'
+
+[requires]
+python_version = '3.8'
+
+[packages]
+Django = '>=1.8.11'
+djangorestframework = '>=3.3.3'
+
+[dev-packages]
+pytest = '==6.2.2'
+sqlparse = '==0.4.1'
+pytest-django = "*"
+coreapi = "*"
+coreschema = "*"
+twine = "*"
