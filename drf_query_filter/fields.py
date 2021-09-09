@@ -326,12 +326,9 @@ def default_timezone():
 
 class DateTimeField(Field):
     """
-    Field that only accepts values that can be parsed into date time
+    Field that only accepts values that can be parsed into datetime
     """
-    error_messages = {
-        'wrong_format': 'Value %(value)s does not have the correct format, should be %(date_format)s'
-    }
-    default_date_format = '%Y-%m-%d'
+    default_date_format = '%Y-%m-%dT%H:%M:%SZ'
     
     def __init__(self, *args, date_format: str = None, **kwargs):
         self.date_format = date_format or self.default_date_format
@@ -341,18 +338,45 @@ class DateTimeField(Field):
         try:
             date = datetime.datetime.strptime(value, self.date_format)
             _timezone = default_timezone()
-            if _timezone:
+            if _timezone and date.tzinfo is None or date.tzinfo.utcoffset(date) is None:
                 return timezone.make_aware(date, _timezone)
+            return date
+        except ValueError:
+            raise ValidationError(
+                self.error_messages['wrong_format'] % {
+                'value': value, 'date_format': self.date_format}, code='wrong_format'
+            )
+
+
+class RangeDateTimeField(mixins.Range,
+                         DateTimeField):
+    """
+    Accepts two dates values in the string and generate a query with greater
+    than or lesser than in the target fields.
+    """
+    pass
+
+
+class DateField(DateTimeField):
+    """
+    Field that only accepts values that can be parsed into date
+    """
+    default_date_format = '%Y-%m-%d'
+    
+    def validate(self, value):
+        try:
+            date = datetime.datetime.strptime(value, self.date_format).date()
             return date
         except ValueError:
             raise ValidationError(self.error_messages['wrong_format'] % {
                 'value': value, 'date_format': self.date_format}, code='wrong_format')
 
 
-class RangeDateTimeField(mixins.Range,
-                         DateTimeField):
+class RangeDateField(mixins.Range,
+                     DateField):
     """
-    Accepts two dates values in the string and generate a query with greater than or lesser than in the target fields.
+    Accepts two dates values in the string and generate a query with greater
+    than or lesser than in the target fields.
     """
     pass
 
