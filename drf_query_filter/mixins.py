@@ -1,5 +1,6 @@
 from django.db.models import Q
 from rest_framework.exceptions import ValidationError
+from rest_framework.compat import coreschema
 
 from drf_query_filter.utils import ConnectorType
 
@@ -56,4 +57,27 @@ class Range:
                 query |= Q(**query_dict)
         return query
 
+    def get_description(self):
+        """ We update the original description by adding a format into it... since the
+        swagger specification does not support our interesting and complicated way to
+        pass a range values"""
+        original_type = super().get_schema()
+        if 'format' in original_type:
+            schema_type = '%s:%s' % original_type.get('type', ''), original_type['format']
+        else:
+            schema_type = original_type.get('type', '')
+        return '%s\n Format: %s' % (
+            super().get_description(),
+            schema_type,
+        )
 
+    def get_coreschema_field(self):
+        return coreschema.String(
+            format=r'(\w*),(\w*)'
+        )
+
+    def get_schema(self):
+        return {
+            'type': 'string',
+            'format': r'(\w*),(\w*)',
+        }

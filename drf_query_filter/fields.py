@@ -1,6 +1,7 @@
 import datetime
-import re
 import decimal
+import re
+import itertools
 from typing import List, Callable, Union, Tuple, Dict, Any, Optional
 
 from django.conf import settings
@@ -9,7 +10,9 @@ from django.db.models.fields import CharField as DjangoCharField
 from django.db.models.functions import Concat
 from django.db.models.query_utils import Q
 from django.utils import timezone
+from django.utils.encoding import force_str
 from django.utils.translation import gettext_lazy as _
+from rest_framework.compat import coreapi, coreschema
 from rest_framework.exceptions import ValidationError
 from rest_framework.fields import get_error_detail
 
@@ -98,6 +101,24 @@ class Node:
         
         return queryset, {}
 
+    def get_coreapi_fields(self) -> list:
+        # get all the childs and return the resulsts
+
+        schema = list(itertools.chain.from_iterable(
+            child.get_coreapi_fields() for child in self.children
+        ))
+
+        return schema
+
+    def get_schema_operation_parameters(self) -> List[dict]:
+        # get all the childs and return the results
+
+        schema = list(itertools.chain.from_iterable(
+            child.get_schema_operation_parameters() for child in self.children
+        ))
+
+        return schema
+
 
 class Field(Node):
     
@@ -105,13 +126,17 @@ class Field(Node):
                  field_name: str,
                  target_fields: Optional[Union[str, List, Tuple]] = None,
                  validators: List[Callable] = None,
+                 description: str = "",
                  connector: ConnectorType = ConnectorType.AND):
         """
-        Base field
-        :param field_name: The name in the query params of the url
-        :param target_fields: The target fields in the queryset, This can be a str alone or multiple of them
-        :param validators: A list of class validators to call in the validation process
-        :param connector: Type of connector in the target fields
+        Base field or String Field.
+        :param field_name: The name in the query params of the url.
+        :param target_fields: The target fields in the queryset, This can be a
+        string or a iterable of strings.
+        :param validators: A list of class validators to call in the validation
+        process.
+        :param description: Description used in schema definition.
+        :param connector: Type of connector in the target fields.
         """
         self.field_name: str = field_name
         assert self.field_name, '%s.field_name cannot be empty.' % self.__class__.__name__
@@ -131,12 +156,15 @@ class Field(Node):
         self._value: Any = self._raw_value  # transformed value
         self.no_value: bool = True  # Flag to check if this
         self._errors: List = []  # the list of errors we got
+
+        self.description = description
         
         super().__init__(None, connector=connector)
     
     def __call__(self, query_data: Dict) -> bool:
         """
-        Try to find the value from the given field, if it doesn't find it then sets _raw_value as Empty()
+        Try to find the value from the given field, if it doesn't find it then
+        sets _raw_value as Empty()
         """
         
         if self.field_name in query_data:
@@ -170,9 +198,10 @@ class Field(Node):
             errors.update(child.errors)
         return errors
     
-    def validate(self, value: Any) -> None:
+    def validate(self, value: Any) -> Any:
         """
-        Function for custom validations, if there is any error it should throw a ValidationError Exception.
+        Function for custom validations, if there is any error it should throw 
+        a ValidationError Exception.
         This can also manipulate the value if required.
         """
         return value
@@ -207,11 +236,17 @@ class Field(Node):
         return len(self._errors) == 0
     
     def get_value_query(self) -> Any:
-        """ This should be overwritten if the desire data needs to be manipulated for the query """
+        """
+        This should be overwritten if the desire data needs to be manipulated
+        for the query
+        """
         return self.value
     
     def get_annotate(self) -> Dict:
-        """ This should be overwritten if the field requires to annotate custom fields in the query """
+        """
+        This should be overwritten if the field requires to annotate custom
+        fields in the query
+        """
         return {}
     
     def get_query(self) -> Q:
@@ -241,6 +276,47 @@ class Field(Node):
                 query |= _query
         return query, annotate
 
+    def get_description(self) -> str:
+        return self.description
+
+    def get_coreschema_field(self):
+        # Cannot really write type definition of `coreschema` since
+        # it will get evaluated when the coreschema it's not installed and the
+        # target project does not require it.
+        return coreschema.String()
+
+    def get_coreapi_fields(self) -> list:
+        # Cannot really write type definition of `coreapi.Field` since
+        # it will get evaluated when the coreapi it's not installed and the
+        # target project does not require it.
+        schema = list(itertools.chain.from_iterable(
+            child.get_coreapi_fields() for child in self.children
+        ))
+
+        return [coreapi.Field(
+            name=self.field_name,
+            required=False,  # for now there it's no requirement
+            location='query',
+            description=self.get_description(),
+            schema=self.get_coreschema_field(),
+        )] + schema
+
+    def get_schema(self) -> dict:
+        return {'type': 'string'}
+
+    def get_schema_operation_parameters(self) -> List[dict]:
+        schema = list(itertools.chain.from_iterable(
+            child.get_schema_operation_parameters() for child in self.children
+        ))
+
+        return [{
+            'name': self.field_name,
+            'required': False,
+            'in': 'query',
+            'description': self.get_description(),
+            'schema': self.get_schema(),
+        }] + schema
+
 
 class IntegerField(Field):
     """
@@ -255,6 +331,15 @@ class IntegerField(Field):
             return int(value)
         except (TypeError, ValueError):
             raise ValidationError(self.error_messages['invalid'] % {'value': value}, code='invalid')
+
+    def get_coreschema_field(self):
+        return coreschema.Integer()
+
+    def get_schema(self) -> dict:
+        return {
+            'type': 'number',
+            'format': 'int32',
+        }
 
 
 class RangeIntegerField(mixins.Range,
@@ -279,6 +364,15 @@ class FloatField(Field):
             return float(value)
         except (TypeError, ValueError):
             raise ValidationError(self.error_messages['invalid'] % {'value': value}, code='invalid')
+
+    def get_coreschema_field(self):
+        return coreschema.Number()
+
+    def get_schema(self) -> dict:
+        return {
+            'type': 'number',
+            'format': 'float',
+        }
 
 
 class RangeFloatField(mixins.Range,
@@ -311,11 +405,21 @@ class DecimalField(Field):
         
         return value
 
+    def get_coreschema_field(self):
+        return coreschema.Number()
+
+    def get_schema(self) -> dict:
+        return {
+            'type': 'number',
+            'format': 'double',
+        }
+
 
 class RangeDecimalField(mixins.Range,
                         DecimalField):
     """
-    Accepts two Decimal values in the string and generate a query with greater than or lesser than in the target fields.
+    Accepts two Decimal values in the string and generate a query with greater 
+    than or lesser than in the target fields.
     """
     pass
 
@@ -347,6 +451,17 @@ class DateTimeField(Field):
                 'value': value, 'date_format': self.date_format}, code='wrong_format'
             )
 
+    def get_coreschema_field(self):
+        return coreschema.String(
+            format='date-time'
+        )
+
+    def get_schema(self) -> dict:
+        return {
+            'type': 'string',
+            'format': 'date-time',
+        }
+
 
 class RangeDateTimeField(mixins.Range,
                          DateTimeField):
@@ -370,6 +485,17 @@ class DateField(DateTimeField):
         except ValueError:
             raise ValidationError(self.error_messages['wrong_format'] % {
                 'value': value, 'date_format': self.date_format}, code='wrong_format')
+        
+    def get_coreschema_field(self):
+        return coreschema.String(
+            format='date'
+        )
+
+    def get_schema(self) -> dict:
+        return {
+            'type': 'string',
+            'format': 'date',
+        }
 
 
 class RangeDateField(mixins.Range,
@@ -404,6 +530,15 @@ class ChoicesField(Field):
                 'value': value, 'choices': self.choices
             }, code='not_in_choices')
         return value
+
+    def get_coreschema_field(self):
+        return coreschema.Enum(self.choices)
+
+    def get_schema(self):
+        return {
+            'type': 'string',
+            'enum': self.choices
+        }
 
 
 class BooleanField(ChoicesField):
