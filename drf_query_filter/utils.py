@@ -4,12 +4,12 @@ from enum import Enum
 class ConnectorType(Enum):
     AND = 'AND'
     OR = 'OR'
-    
+
     @classmethod
     def has_value(cls, value: int) -> bool:
         return value in cls._value2member_map_
-    
-    
+
+
 def print_tree(node, level=0, final=False, parent_final=False):
     # this function is for debug purposes
     if level > 0:

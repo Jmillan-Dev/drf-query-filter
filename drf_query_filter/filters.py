@@ -19,7 +19,7 @@ def _call_or_attr(view, call, attr):
 class QueryParamFilter(filters.BaseFilterBackend):
     # Defaults:
     raise_exceptions = False
-    
+
     # Look ups for attrs and functions in the view
     query_param_attr = 'query_params'
     query_param_call = 'get_query_params'
@@ -34,7 +34,7 @@ class QueryParamFilter(filters.BaseFilterBackend):
 
     def get_query_params(self, view) -> List[fields.Node]:
         return _call_or_attr(view, self.query_param_call, self.query_param_attr)
-        
+
     def get_query_schema(self, view) -> List[fields.Node]:
         schema = _call_or_attr(view, self.query_schema_call,
                                self.query_schema_attr)
@@ -42,7 +42,7 @@ class QueryParamFilter(filters.BaseFilterBackend):
             # Try with the default get_query_params instead
             schema = self.get_query_params(view)
         return schema
-    
+
     def filter_queryset(self, request, queryset, view):
         query_fields = self.get_query_params(view)
         errors = {}
@@ -52,7 +52,7 @@ class QueryParamFilter(filters.BaseFilterBackend):
 
         if not query_fields:  # do nothing if no fields are found
             return queryset
-            
+
         for field in query_fields:
             queryset, field_errors = field.filter(queryset, request.query_params,
                                                   self.get_raise_exceptions(view))
@@ -63,15 +63,15 @@ class QueryParamFilter(filters.BaseFilterBackend):
         return queryset
 
     def get_schema_fields(self, view):
-        assert coreapi is not None, 'coreapi must be installed to use `get_schema_fields()`'
-        assert coreschema is not None, 'coreschema must be installed to use `get_schema_fields()`'
+        assert coreapi is not None, 'coreapi must be installed to use ' \
+                                    '`get_schema_fields()` '
+        assert coreschema is not None, 'coreschema must be installed to use ' \
+                                       '`get_schema_fields()` '
 
-        # get all the fields from the queryset
         query_fields = self.get_query_schema(view)
 
-        # return all the possible searchs
         return list(itertools.chain.from_iterable(
-            field.get_schema_field() for field in query_fields
+            field.get_coreapi_fields() for field in query_fields
         ))
 
     def get_schema_operation_parameters(self, view):

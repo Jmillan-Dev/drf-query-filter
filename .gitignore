@@ -26,7 +26,6 @@ pip-delete-this-directory.txt
 target/
 *.egg-info
 
-
 # ignore sqlite3 files
 *.sqlite3
 *.db

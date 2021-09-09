@@ -7,8 +7,8 @@ file_path = os.path.dirname(__file__)
 def read_file(file_name: str):
     with open(os.path.join(file_path, file_name), encoding='utf-8') as f:
         return f.read()
-    
-    
+
+
 long_description = read_file('README.md')
 install_requires = read_file('requirements.txt').strip().splitlines()
 

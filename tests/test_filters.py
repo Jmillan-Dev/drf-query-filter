@@ -22,11 +22,11 @@ class FakeQuerySet:
     def __init__(self):
         self.query = list()
         self.annotate = list()
-        
+
     def annotate(self, **kwargs):
         self.annotate.append(kwargs)
         return self
-        
+
     def filter(self, query):
         self.query.append(query)
         return self
@@ -38,7 +38,7 @@ class FakeRequest:
 
 
 class FilterTests(TestCase):
-    
+
     def test_with_normal_filter(self):
         f = filters.QueryParamFilter()
         queryset = FakeQuerySet()
@@ -50,7 +50,7 @@ class FilterTests(TestCase):
         self.assertEqual(len(queryset.query), 2)
         self.assertEqual(queryset.query[0], Q(id=10) & Q(state='A'))
         self.assertEqual(queryset.query[1], Q(name__icontains='simon jefa!') | Q(category__name='simon jefa!'))
-        
+
         queryset = FakeQuerySet()
         f.filter_queryset(
             request=FakeRequest(id='28', state='None'),
@@ -58,7 +58,7 @@ class FilterTests(TestCase):
         )
         self.assertEqual(len(queryset.query), 1)
         self.assertEqual(queryset.query[0], Q(id=28))
-        
+
         queryset = FakeQuerySet()
         f.filter_queryset(
             request=FakeRequest(search='sis'),
@@ -76,7 +76,7 @@ class FilterTests(TestCase):
                 request=FakeRequest(id='id', state='None', search=''),
                 view=SimpleView(raise_exceptions=True), queryset=queryset
             )
-            
+
         with self.assertRaises(ValidationError):
             f.filter_queryset(
                 request=FakeRequest(id='10', state='a'),
