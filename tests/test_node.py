@@ -34,7 +34,8 @@ class NodeTests(TestCase):
 
         node = Field('a', ['a_a', 'a_b'], connector=Con.OR) & Field('b')
         query, _ = node.get_filter({'a': 'value_a', 'b': 'value_b'})
-        self.assertEqual(query, Q(a_a='value_a', a_b='value_a', _connector='OR') & Q(b='value_b'))
+        self.assertEqual(query, Q(a_a='value_a', a_b='value_a',
+                                  _connector='OR') & Q(b='value_b'))
 
     def test_partial_query_generation(self):
         node = Field('a') & Field('b')
@@ -52,4 +53,3 @@ class NodeTests(TestCase):
         node = (Field('a') | Field('b')) & Field('c')
         query, _ = node.get_filter({'a': 'value', 'c': 'value'})
         self.assertEqual(query, Q(a='value') & Q(c='value'))
-

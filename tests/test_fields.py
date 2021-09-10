@@ -22,10 +22,11 @@ from drf_query_filter.fields import (
     IntegerField,
     ConcatField,
     DateTimeField,
+    DateField,
     RangeFloatField,
     RangeIntegerField,
     RangeDecimalField,
-    RangeDateTimeField,
+    RangeDateField,
     default_timezone,
 )
 
@@ -39,7 +40,8 @@ class FieldTests(TestCase):
         self.assertEqual(Field('field', 'target_field').target_fields, ['target_field'])
         self.assertEqual(Field('field').target_fields, ['field'])
         self.assertEqual(Field('field', ['one', 'two']).target_fields, ['one', 'two'])
-        self.assertEqual(Field('field', ('target_field',)).target_fields, ('target_field',))
+        self.assertEqual(Field('field', ('target_field',)).target_fields,
+                         ('target_field',))
 
     def test_call(self):
         """
@@ -78,7 +80,8 @@ class FieldTests(TestCase):
         field = Field('field', ['target_one', 'target_two'])
         field({'field': 'value'})
         field.is_valid()
-        self.assertEqual(str(field.get_query()), str(Q(target_one='value') & Q(target_two='value')))
+        self.assertEqual(str(field.get_query()),
+                         str(Q(target_one='value') & Q(target_two='value')))
         field = Field('field')
         field({'field': 'value'})
         field.is_valid()
@@ -137,7 +140,8 @@ class NumericFieldsTests(TestCase):
     def test_validators(self):
         """ Using numeric validators of Django """
         for field_class in [IntegerField, FloatField, DecimalField]:
-            field = field_class('field', validators=[MinValueValidator(3), MaxValueValidator(10)])
+            field = field_class('field', validators=[MinValueValidator(3),
+                                                     MaxValueValidator(10)])
             field({'field': '10'})
             self.assertTrue(field.is_valid(), field._errors)
             field({'field': '0'})
@@ -202,12 +206,14 @@ class BooleanFieldTests(TestCase):
 class ConcatFieldTests(TestCase):
 
     def test_annotate(self):
-        # we cannot really compare the Concat values so we just compare the result field name generated
+        # we cannot really compare the Concat values so we just compare the result
+        # field name generated
         field = ConcatField('field', ['field_one', 'field_two'])
         self.assertTrue('field_one_field_two', field.get_annotate())
         field = ConcatField('field', ['field_one__element', 'field__other'])
         self.assertTrue('field_one_element_field_other', field.get_annotate())
-        field = ConcatField('field', ['field_one', 'field_two'], target_field_name='field_annotate')
+        field = ConcatField('field', ['field_one', 'field_two'],
+                            target_field_name='field_annotate')
         self.assertIn('field_annotate', field.get_annotate())
 
     def test_get_query(self):
@@ -218,30 +224,50 @@ class ConcatFieldTests(TestCase):
         field = ConcatField('field', ['field_one', 'field_two'], lookup='icontains')
         field({'field': 'value'})
         field.is_valid()
-        self.assertEqual(str(field.get_query()), str(Q(field_one_field_two__icontains='value')))
+        self.assertEqual(str(field.get_query()),
+                         str(Q(field_one_field_two__icontains='value')))
 
 
-class DateTimeFieldTests(TestCase):
+class DateFieldTests(TestCase):
 
     def test_validate(self):
-        field = DateTimeField('field')
+        field = DateField('field')
         field({'field': '2020-12-31'})
         self.assertTrue(field.is_valid(), field._errors)
-        self.assertEqual(field.value, datetime(year=2020, month=12, day=31))
-        field({'field': '2020-30-12'})
+        self.assertEqual(field.value, datetime(year=2020, month=12, day=31).date())
+        field({'field': '2020-12-12T10:25:30Z'})
         self.assertFalse(field.is_valid())
         self.assertEqual(field._errors[0].code, 'wrong_format', field._errors)
         field({'field': '31-12-2020'})
         self.assertFalse(field.is_valid())
         self.assertEqual(field._errors[0].code, 'wrong_format', field._errors)
 
+
+class DateTimeFieldTests(TestCase):
+    def test_validate(self):
+        field = DateTimeField('field')
+        field({'field': '2020-1-1T10:25:30Z'})
+        self.assertTrue(field.is_valid(), field._errors)
+        self.assertEqual(
+            field.value,
+            datetime(year=2020, month=1, day=1, hour=10, minute=25, second=30)
+        )
+        field({'field': '2021-30-12'})
+        self.assertFalse(field.is_valid())
+        self.assertEqual(field._errors[0].code, 'wrong_format', field._errors)
+        field({'field': '31-12-2020T10:10:10'})
+        self.assertFalse(field.is_valid())
+        self.assertEqual(field._errors[0].code, 'wrong_format', field._errors)
+
     @override_settings(USE_TZ=True)
     def test_validate_forcing_timezone(self):
         field = DateTimeField('field')
-        field({'field': '2020-1-1'})
+        field({'field': '2020-1-1T10:25:30Z'})
+        _datetime = datetime(year=2020, month=1, day=1, hour=10, minute=25, second=30)
+
         self.assertTrue(field.is_valid(), field._errors)
-        self.assertNotEqual(field.value, datetime(year=2020, month=1, day=1))
-        self.assertEqual(field.value, timezone.make_aware(datetime(year=2020, month=1, day=1), default_timezone()))
+        self.assertNotEqual(field.value, _datetime)
+        self.assertEqual(field.value, timezone.make_aware(_datetime, default_timezone()))
 
 
 class TestingRangeMixin(TestCase):
@@ -263,7 +289,7 @@ class TestingRangeMixin(TestCase):
             field({'field': '1,'})
             self.assertTrue(field.is_valid(), field._errors)
 
-        field = RangeDateTimeField('field')
+        field = RangeDateField('field')
         field({'field': '2020-1-1,2020-12-31'})
         self.assertTrue(field.is_valid(), field._errors)
         field({'field': ',2020-12-31'})

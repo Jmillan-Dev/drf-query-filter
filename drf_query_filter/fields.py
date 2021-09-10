@@ -458,7 +458,7 @@ class DateTimeField(Field):
         try:
             date = datetime.datetime.strptime(value, self.date_format)
             _timezone = default_timezone()
-            if _timezone and date.tzinfo is None or date.tzinfo.utcoffset(date) is None:
+            if _timezone and (date.tzinfo is None or date.tzinfo.utcoffset(date) is None):
                 return timezone.make_aware(date, _timezone)
             return date
         except ValueError:

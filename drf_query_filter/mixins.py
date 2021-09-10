@@ -66,7 +66,10 @@ class Range:
         pass a range values"""
         original_type = super().get_schema()
         if 'format' in original_type:
-            schema_type = '%s:%s' % original_type.get('type', ''), original_type['format']
+            schema_type = '%s:%s' % (
+                original_type.get('type', ''),
+                original_type['format']
+            )
         else:
             schema_type = original_type.get('type', '')
         return '%s\n Format: %s' % (

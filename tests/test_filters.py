@@ -9,7 +9,8 @@ from drf_query_filter.utils import ConnectorType
 class SimpleView:
     query_params = [
         fields.IntegerField('id') & fields.ChoicesField('state', choices=['A', 'S', 'N']),
-        fields.Field('search', ['name__icontains', 'category__name'], connector=ConnectorType.OR)
+        fields.Field('search', ['name__icontains', 'category__name'],
+                     connector=ConnectorType.OR)
     ]
 
     def __init__(self, raise_exceptions=False, **kwargs):
@@ -49,7 +50,10 @@ class FilterTests(TestCase):
         )
         self.assertEqual(len(queryset.query), 2)
         self.assertEqual(queryset.query[0], Q(id=10) & Q(state='A'))
-        self.assertEqual(queryset.query[1], Q(name__icontains='simon jefa!') | Q(category__name='simon jefa!'))
+        self.assertEqual(
+            queryset.query[1],
+            Q(name__icontains='simon jefa!') | Q(category__name='simon jefa!')
+        )
 
         queryset = FakeQuerySet()
         f.filter_queryset(
@@ -65,7 +69,8 @@ class FilterTests(TestCase):
             view=view, queryset=queryset
         )
         self.assertEqual(len(queryset.query), 1)
-        self.assertEqual(queryset.query[0], Q(name__icontains='sis') | Q(category__name='sis'))
+        self.assertEqual(queryset.query[0],
+                         Q(name__icontains='sis') | Q(category__name='sis'))
 
     def test_with_filter_validations(self):
         f = filters.QueryParamFilter()
@@ -88,5 +93,3 @@ class FilterTests(TestCase):
         queryset = FakeQuerySet()
         view = SimpleView(query_params=None)
         f.filter_queryset(request=FakeRequest(ignore=True),view=view, queryset=queryset)
-
-

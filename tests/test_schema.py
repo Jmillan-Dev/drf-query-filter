@@ -1,5 +1,19 @@
 from drf_query_filter.fields import (
     Field,
+    ExistsField,
+    FloatField,
+    BooleanField,
+    ChoicesField,
+    DecimalField,
+    IntegerField,
+    ConcatField,
+    DateTimeField,
+    DateField,
+    RangeFloatField,
+    RangeIntegerField,
+    RangeDecimalField,
+    RangeDateTimeField,
+    RangeDateField,
 )
 
 
@@ -15,9 +29,31 @@ def test_generation_of_schema_list():
         'description': '',
         'schema': {
             'type': 'string',
-        }
+        },
+        'example': '',
     } for value in ('z', 'a', 'b', 'c', 'd', 'y')]
 
     assert schema == schema_target, "Not equals!"
 
 
+def test_all_fields_schema():
+    field_classes = [
+        Field,
+        ExistsField,
+        FloatField,
+        BooleanField,
+        ChoicesField,
+        DecimalField,
+        IntegerField,
+        ConcatField,
+        DateTimeField,
+        DateField,
+        RangeFloatField,
+        RangeIntegerField,
+        RangeDecimalField,
+        RangeDateTimeField,
+        RangeDateField,
+    ]
+
+    # try not to crash
+    [y(str(x)).get_schema_operation_parameters() for x, y in enumerate(field_classes)]
