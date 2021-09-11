@@ -15,6 +15,7 @@ from drf_query_filter.fields import (
     RangeDateTimeField,
     RangeDateField,
 )
+from drf_query_filter.filters import QueryParamFilter
 
 
 def test_generation_of_schema_list():
@@ -57,3 +58,13 @@ def test_all_fields_schema():
 
     # try not to crash
     [y(str(x)).get_schema_operation_parameters() for x, y in enumerate(field_classes)]
+
+
+def test_empty_filter():
+    class View:
+        pass
+
+    q = QueryParamFilter()
+    # Do not crash if no query params found
+    q.get_schema_operation_parameters(View())
+    q.get_schema_fields(View())

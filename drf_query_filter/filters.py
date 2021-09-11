@@ -68,14 +68,14 @@ class QueryParamFilter(filters.BaseFilterBackend):
         assert coreschema is not None, 'coreschema must be installed to use ' \
                                        '`get_schema_fields()` '
 
-        query_fields = self.get_query_schema(view)
+        query_fields = self.get_query_schema(view) or list()
 
         return list(itertools.chain.from_iterable(
             field.get_coreapi_fields() for field in query_fields
         ))
 
     def get_schema_operation_parameters(self, view):
-        query_fields = self.get_query_schema(view)
+        query_fields = self.get_query_schema(view) or list()
 
         return list(itertools.chain.from_iterable(
             field.get_schema_operation_parameters() for field in query_fields
