@@ -59,7 +59,7 @@ the view needs to define the fields to be used in the query set. there are two w
 by attribute:
 
 ```python
-query_param = [
+query_params = [
     fields.Field('id') & fields.Field('username', 'username__icontains'),
     fields.ConcatField('full_name', ['first_name', V(' '), 'last_name'])
 ]
@@ -68,7 +68,7 @@ query_param = [
 or by a callable:
 
 ```python
-def get_query_param(self):
+def get_query_params(self):
     return [
         fields.Field('id') & fields.Field('username', 'username__icontains'),
         fields.ConcatField('full_name', ['first_name', V(' '), 'last_name'])
