@@ -7,7 +7,7 @@ from django.core.validators import (
     MaxValueValidator,
     MinValueValidator,
 )
-from django.db.models import Q
+from django.db.models import Q, IntegerChoices
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -171,6 +171,24 @@ class ChoicesFieldTests(TestCase):
             field({'field': value})
             self.assertFalse(field.is_valid())
             self.assertEqual(field._errors[0].code, 'not_in_choices')
+
+    def test_with_choices_model(self):
+        class TestChoices(IntegerChoices):
+            ONE = 1
+            TWO = (2, 'dos')
+
+        field = ChoicesField('field', choices=TestChoices.choices)
+
+        for value in ['1', '2']:
+            field({'field': value})
+            self.assertTrue(field.is_valid(), field._errors)
+
+        for value in ['ONE', '3']:
+            field({'field': value})
+            self.assertFalse(field.is_valid())
+            self.assertEqual(field._errors[0].code, 'not_in_choices')
+
+        print('yes', field.get_schema())
 
 
 class BooleanFieldTests(TestCase):

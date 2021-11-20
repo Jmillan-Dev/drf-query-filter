@@ -6,6 +6,8 @@ from typing import List, Callable, Union, Tuple, Dict, Any, Optional
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import IntegerChoices
+from django.db.models import TextChoices
 from django.db.models.fields import CharField as DjangoCharField
 from django.db.models.functions import Concat
 from django.db.models.query_utils import Q
@@ -534,27 +536,49 @@ class ChoicesField(Field):
                                '%(choices)s '
 
     def __init__(self, *args,
-                 choices: List[str] = None,
+                 choices: Union[
+                     List[Tuple[str, str]],
+                     List[str],
+                 ] = None,
                  validate_message: str = "",
                  **kwargs):
-        self.choices = choices or self.default_choices
+
+        self.choices = self.sanitize_choices(choices or self.default_choices)
+
         self.validate_message = validate_message or self.default_validate_message
         super().__init__(*args, **kwargs)
 
+    def sanitize_choices(self, choices) -> List[Tuple[str, str]]:
+        """
+        makes sure that choices it's a tuple.
+        """
+        return [
+            (str(choice[0]), str(choice[1])) if isinstance(choice, tuple) else (choice, Empty())
+            for choice in choices
+        ]
+
     def validate(self, value):
-        if value not in self.choices:
+        if not any(value == choice[0] for choice in self.choices):
             raise ValidationError(detail=self.validate_message % {
-                'value': value, 'choices': self.choices
+                'value': value, 'choices': [
+                    choice[0] for choice in self.choices
+                ]
             }, code='not_in_choices')
         return value
 
+    def get_choices_for_schema(self):
+        return [
+            choice[0] if isinstance(choice[1], Empty) else '`%s`: %s' % choice
+            for choice in self.choices
+        ]
+
     def get_coreschema_field(self):
-        return coreschema.Enum(self.choices)
+        return coreschema.Enum(self.get_choices_for_schema())
 
     def get_schema(self):
         return {
             'type': 'string',
-            'enum': self.choices
+            'enum': self.get_choices_for_schema()
         }
 
 
