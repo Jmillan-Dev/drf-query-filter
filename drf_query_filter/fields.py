@@ -7,6 +7,7 @@ from typing import List, Callable, Union, Tuple, Dict, Any, Optional
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models.fields import CharField as DjangoCharField
+from django.db.models.enums import Choices
 from django.db.models.functions import Concat
 from django.db.models.query_utils import Q
 from django.utils import timezone
@@ -16,7 +17,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.fields import get_error_detail
 
 from drf_query_filter import mixins
-from drf_query_filter.utils import ConnectorType
+from drf_query_filter.utils import ConnectorType, choices2help_text
 
 
 class Empty:
@@ -551,6 +552,7 @@ class ChoicesField(Field):
 
     def __init__(self, *args,
                  choices: Union[
+                     Choices,
                      List[Tuple[str, str]],
                      List[str],
                  ] = None,
@@ -563,9 +565,9 @@ class ChoicesField(Field):
         super().__init__(*args, **kwargs)
 
     def sanitize_choices(self, choices) -> List[Tuple[str, str]]:
-        """
-        makes sure that choices it's a tuple.
-        """
+        """Makes sure that choices it's a valid type."""
+        if isinstance(choices, Choices):
+            return choices.chocies
         return [
             (str(choice[0]), str(choice[1]))
             if isinstance(choice, tuple) else (choice, Empty())
@@ -581,11 +583,14 @@ class ChoicesField(Field):
             }, code='not_in_choices')
         return value
 
+    def get_description(self) -> str:
+        return '%s%s' % (
+            self.description + '  \n' if self.description else '',
+            choices2help_text(self.choices)
+        )
+
     def get_choices_for_schema(self):
-        return [
-            choice[0] if isinstance(choice[1], Empty) else '`%s`: %s' % choice
-            for choice in self.choices
-        ]
+        return [choice[0] for choice in self.choices]
 
     def get_coreschema_field(self):
         return coreschema.Enum(self.get_choices_for_schema())

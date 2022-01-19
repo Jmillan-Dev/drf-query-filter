@@ -10,11 +10,22 @@ class ConnectorType(Enum):
         return value in cls._value2member_map_
 
 
+def choices2help_text(choices: list) -> str:
+    """
+    Generates a help text that it's useful for the OpenAPI documentation.
+    """
+    return (
+        '| Value | Desc |  \n'
+        '| ---- | ---- |  \n'
+        '%s' % '  \n'.join('| %s | %s |' % choice for choice in choices)
+    )
+
+
 def print_tree(node, level=0, final=False, parent_final=False):
     # this function is for debug purposes
     if level > 0:
         tab = '%(space)s%(symbol)s── ' % {
-            'space': ('%s   ' % (' ' if parent_final else '│')) * (level-1),
+            'space': ('%s   ' % (' ' if parent_final else '│')) * (level - 1),
             'symbol': '└' if final else '├'
         }
     else:

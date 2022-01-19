@@ -188,8 +188,22 @@ class ChoicesFieldTests(TestCase):
             self.assertFalse(field.is_valid())
             self.assertEqual(field._errors[0].code, 'not_in_choices')
 
-        print('yes', field.get_schema())
+    def test_description(self):
+        class TestChoices(IntegerChoices):
+            ONE = 1
+            TWO = 2
+            THREE = (3, 'third value')
 
+        field = ChoicesField('field', choices=TestChoices.choices)
+
+        self.assertEqual(
+            '| Value | Desc |  \n'
+            '| ---- | ---- |  \n'
+            '| 1 | One |  \n'
+            '| 2 | Two |  \n'
+            '| 3 | third value |',
+            field.get_description()
+        )
 
 class BooleanFieldTests(TestCase):
 
