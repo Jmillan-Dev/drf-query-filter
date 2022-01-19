@@ -6,8 +6,6 @@ from typing import List, Callable, Union, Tuple, Dict, Any, Optional
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import IntegerChoices
-from django.db.models import TextChoices
 from django.db.models.fields import CharField as DjangoCharField
 from django.db.models.functions import Concat
 from django.db.models.query_utils import Q
@@ -62,7 +60,8 @@ class Node:
             return '(%(connector)s: [%(children)s])' % \
                    {
                        'connector': self.connector.value,
-                       'children':  ', '.join([repr(child) for child in self.children]),
+                       'children':  ', '.join(
+                           [repr(child) for child in self.children]),
                    }
         return '`EMPTY NODE`'
 
@@ -86,7 +85,8 @@ class Node:
                 query |= _query
         return query, annotate
 
-    def filter(self, queryset, data, raise_exceptions=False) -> Tuple[Any, Dict]:
+    def filter(self, queryset, data,
+               raise_exceptions=False) -> Tuple[Any, Dict]:
         # This gets the query and annotate of all children and itself
         query, annotate = self.get_filter(data)
 
@@ -140,13 +140,15 @@ class Field(Node):
         :param connector: Type of connector in the target fields.
         """
         self.field_name: str = field_name
-        assert self.field_name, '%s.field_name cannot be empty.' % self.__class__.__name__
+        assert self.field_name, (
+            '%s.field_name cannot be empty.' % self.__class__.__name__)
 
         self.target_fields = target_fields or self.field_name
 
         assert isinstance(self.target_fields, (str, list, tuple)), (
-                'given target_fields is a `%s`, expected a str or a list/tuple.' %
-                type(self.target_fields)
+            'given target_fields is a `%s`,'
+            'expected a str or a list/tuple.' %
+            type(self.target_fields)
         )
 
         if isinstance(self.target_fields, str):
@@ -154,7 +156,8 @@ class Field(Node):
 
         self.validators: List[Callable] = validators
 
-        self._raw_value: Any = Empty()  # value got from the query param request
+        # value got from the query param request
+        self._raw_value: Any = Empty()
         self._value: Any = self._raw_value  # transformed value
         self.no_value: bool = True  # Flag to check if this
         self._errors: List = []  # the list of errors we got
@@ -182,13 +185,15 @@ class Field(Node):
                    {
                        'connector':  self.connector.value,
                        'field_name': self.field_name,
-                       'children':   ', '.join([repr(child) for child in self.children]),
+                       'children':   ', '.join(
+                           [repr(child) for child in self.children]),
                    }
         return '%(field_name)s' % {'field_name': self.field_name}
 
     @property
     def value(self) -> Any:
-        assert not isinstance(self._value, Empty), 'you must call is_valid first'
+        assert not isinstance(self._value, Empty), (
+            'you must call is_valid first')
         return self._value
 
     @property
@@ -212,7 +217,8 @@ class Field(Node):
         """ This runs the validators like the fields in rest_framework """
         if self.validators:
             for validator in self.validators:
-                # Run all the validators and gather all the errors raised by them
+                # Run all the validators and gather all the errors raised by
+                #  them
                 try:
                     validator(value)
                 except ValidationError as exc:
@@ -337,8 +343,9 @@ class IntegerField(Field):
         try:
             return int(value)
         except (TypeError, ValueError):
-            raise ValidationError(self.error_messages['invalid'] % {'value': value},
-                                  code='invalid')
+            raise ValidationError(
+                self.error_messages['invalid'] % {'value': value},
+                code='invalid')
 
     def get_coreschema_field(self):
         return coreschema.Integer()
@@ -353,8 +360,8 @@ class IntegerField(Field):
 class RangeIntegerField(mixins.Range,
                         IntegerField):
     """
-    Accepts two integer values in the string and generate a query with greater than and/or
-    lesser than in the target fields.
+    Accepts two integer values in the string and generate a
+    query with greater than and/or lesser than in the target fields.
     """
     pass
 
@@ -372,8 +379,9 @@ class FloatField(Field):
         try:
             return float(value)
         except (TypeError, ValueError):
-            raise ValidationError(self.error_messages['invalid'] % {'value': value},
-                                  code='invalid')
+            raise ValidationError(
+                self.error_messages['invalid'] % {'value': value},
+                code='invalid')
 
     def get_coreschema_field(self):
         return coreschema.Number()
@@ -388,8 +396,8 @@ class FloatField(Field):
 class RangeFloatField(mixins.Range,
                       FloatField):
     """
-    Accepts two float values in the string and generate a query with greater than and/or
-    lesser than in the target fields.
+    Accepts two float values in the string and generate a query with
+    greater than and/or lesser than in the target fields.
     """
     pass
 
@@ -406,16 +414,19 @@ class DecimalField(Field):
         try:
             value = decimal.Decimal(value)
         except (decimal.InvalidOperation, TypeError, ValueError):
-            raise ValidationError(self.error_messages['invalid'] % {'value': value},
-                                  code='invalid')
+            raise ValidationError(
+                self.error_messages['invalid'] % {'value': value},
+                code='invalid')
 
         if value.is_nan():
-            raise ValidationError(self.error_messages['invalid'] % {'value': value},
-                                  code='invalid')
+            raise ValidationError(
+                self.error_messages['invalid'] % {'value': value},
+                code='invalid')
 
         if value in (decimal.Decimal('Inf'), decimal.Decimal('-Inf')):
-            raise ValidationError(self.error_messages['invalid'] % {'value': value},
-                                  code='invalid')
+            raise ValidationError(
+                self.error_messages['invalid'] % {'value': value},
+                code='invalid')
 
         return value
 
@@ -460,7 +471,9 @@ class DateTimeField(Field):
         try:
             date = datetime.datetime.strptime(value, self.date_format)
             _timezone = default_timezone()
-            if _timezone and (date.tzinfo is None or date.tzinfo.utcoffset(date) is None):
+            if _timezone and (
+                    date.tzinfo is None
+                    or date.tzinfo.utcoffset(date) is None):
                 return timezone.make_aware(date, _timezone)
             return date
         except ValueError:
@@ -502,7 +515,8 @@ class DateField(DateTimeField):
             return date
         except ValueError:
             raise ValidationError(self.error_messages['wrong_format'] % {
-                'value': value, 'date_format': self.date_format}, code='wrong_format')
+                'value': value, 'date_format': self.date_format},
+                code='wrong_format')
 
     def get_coreschema_field(self):
         return coreschema.String(
@@ -532,8 +546,8 @@ class ChoicesField(Field):
     """
 
     default_choices = []
-    default_validate_message = 'Value `%(value)s` is not a valid option, Options are: ' \
-                               '%(choices)s '
+    default_validate_message = 'Value `%(value)s` is not a valid option,' \
+                               'Options are: %(choices)s '
 
     def __init__(self, *args,
                  choices: Union[
@@ -553,7 +567,8 @@ class ChoicesField(Field):
         makes sure that choices it's a tuple.
         """
         return [
-            (str(choice[0]), str(choice[1])) if isinstance(choice, tuple) else (choice, Empty())
+            (str(choice[0]), str(choice[1]))
+            if isinstance(choice, tuple) else (choice, Empty())
             for choice in choices
         ]
 
@@ -594,8 +609,8 @@ class BooleanField(ChoicesField):
             'false', 'False', 'f', 'F', '0'
         ]
         self.invert = invert
-        kwargs['validate_message'] = 'Value `%(value)s` is not a valid boolean. Options '\
-                                     'are: %(choices)s '
+        kwargs['validate_message'] = 'Value `%(value)s` is not a valid ' \
+            'boolean. Options are: %(choices)s '
         super().__init__(*args, **kwargs)
 
     def validate(self, value):
@@ -641,7 +656,9 @@ class ConcatField(Field):
 
     def get_query(self):
         query = Q(**{
-            '%s%s' % (self.target_field_name, self.get_lookup()): self.get_value_query()
+            '%s%s' % (
+                self.target_field_name, self.get_lookup()
+            ): self.get_value_query()
         })
         return query
 
