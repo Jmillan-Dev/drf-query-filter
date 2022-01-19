@@ -1,6 +1,7 @@
 import os
 import setuptools
 
+
 file_path = os.path.dirname(__file__)
 
 
@@ -14,7 +15,7 @@ install_requires = read_file('requirements.txt').strip().splitlines()
 
 setuptools.setup(
     name='drf-query-filter',
-    version='0.1.7.1',
+    version='0.1.8.2',
     packages=['drf_query_filter'],
     description=(
         'A django app to apply filters on drf queryset '
@@ -36,6 +37,8 @@ setuptools.setup(
         'Programming Language :: Python :: 3.2',
         'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
+        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.10',
         'Topic :: Internet :: WWW/HTTP',
     ],
     install_requires=install_requires,
