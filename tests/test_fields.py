@@ -7,7 +7,7 @@ from django.core.validators import (
     MaxValueValidator,
     MinValueValidator,
 )
-from django.db.models import Q, IntegerChoices
+from django.db.models import Q, IntegerChoices, TextChoices
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -189,21 +189,48 @@ class ChoicesFieldTests(TestCase):
             self.assertEqual(field._errors[0].code, 'not_in_choices')
 
     def test_description(self):
-        class TestChoices(IntegerChoices):
+        class TestIntChoices(IntegerChoices):
             ONE = 1
             TWO = 2
             THREE = (3, 'third value')
 
-        field = ChoicesField('field', choices=TestChoices.choices)
+        class TestStrChoices(TextChoices):
+            A = ('a', 'Aaa')
+            B = ('b', 'The b of burrito')
+            C = 'c'
 
-        self.assertEqual(
+        expected_int = (
             '| Value | Desc |  \n'
             '| ---- | ---- |  \n'
             '| 1 | One |  \n'
             '| 2 | Two |  \n'
-            '| 3 | third value |',
-            field.get_description()
+            '| 3 | third value |'
         )
+
+        expected_str = (
+            '| Value | Desc |  \n'
+            '| ---- | ---- |  \n'
+            '| a | Aaa |  \n'
+            '| b | The b of burrito |  \n'
+            '| c | C |'
+        )
+
+        field = ChoicesField('field', choices=TestIntChoices)
+
+        self.assertEqual(expected_int, field.get_description())
+
+        field = ChoicesField('field', choices=TestIntChoices.choices)
+
+        self.assertEqual(expected_int, field.get_description())
+
+        field = ChoicesField('field', choices=TestStrChoices)
+
+        self.assertEqual(expected_str, field.get_description())
+
+        field = ChoicesField('field', choices=TestStrChoices.choices)
+
+        self.assertEqual(expected_str, field.get_description())
+
 
 class BooleanFieldTests(TestCase):
 

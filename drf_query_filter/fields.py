@@ -1,8 +1,9 @@
+from typing import List, Callable, Union, Tuple, Dict, Any, Optional
 import datetime
 import decimal
-import re
 import itertools
-from typing import List, Callable, Union, Tuple, Dict, Any, Optional
+import re
+import inspect
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -566,8 +567,8 @@ class ChoicesField(Field):
 
     def sanitize_choices(self, choices) -> List[Tuple[str, str]]:
         """Makes sure that choices it's a valid type."""
-        if isinstance(choices, Choices):
-            return choices.chocies
+        if inspect.isclass(choices) and issubclass(choices, Choices):
+            return choices.choices
         return [
             (str(choice[0]), str(choice[1]))
             if isinstance(choice, tuple) else (choice, Empty())
