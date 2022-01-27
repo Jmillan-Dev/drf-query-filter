@@ -1,4 +1,4 @@
-from typing import List, Callable, Union, Tuple, Dict, Any, Optional
+from typing import List, Callable, Union, Tuple, Dict, Any, Optional, Type
 import datetime
 import decimal
 import itertools
@@ -553,7 +553,7 @@ class ChoicesField(Field):
 
     def __init__(self, *args,
                  choices: Union[
-                     Choices,
+                     Type[Choices],
                      List[Tuple[str, str]],
                      List[str],
                  ] = None,
