@@ -568,7 +568,7 @@ class ChoicesField(Field):
     def sanitize_choices(self, choices) -> List[Tuple[str, str]]:
         """Makes sure that choices it's a valid type."""
         if inspect.isclass(choices) and issubclass(choices, Choices):
-            return choices.choices
+            choices = choices.choices
         return [
             (str(choice[0]), str(choice[1]))
             if isinstance(choice, tuple) else (choice, Empty())

@@ -177,7 +177,7 @@ class ChoicesFieldTests(TestCase):
             ONE = 1
             TWO = (2, 'dos')
 
-        field = ChoicesField('field', choices=TestChoices.choices)
+        field = ChoicesField('field', choices=TestChoices)
 
         for value in ['1', '2']:
             field({'field': value})
