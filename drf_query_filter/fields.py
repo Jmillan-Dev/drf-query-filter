@@ -23,7 +23,8 @@ from drf_query_filter.utils import ConnectorType, choices2help_text
 
 class Empty:
     """ Dummy class just to represent a True None value """
-    pass
+    def __str__(self):
+        return '<Empty>'
 
 
 class Node:
@@ -611,8 +612,12 @@ class BooleanField(ChoicesField):
     def __init__(self, *args, invert=False, **kwargs):
         # ignore the kwargs of choices
         kwargs['choices'] = [
-            'true', 'True', 't', 'T', '1',
-            'false', 'False', 'f', 'F', '0'
+            ('true', True), ('True', True),
+            ('t', True), ('T', True),
+            ('1', True),
+            ('false', False), ('False', False),
+            ('f', False), ('F', False),
+            ('0', False),
         ]
         self.invert = invert
         kwargs['validate_message'] = 'Value `%(value)s` is not a valid ' \
