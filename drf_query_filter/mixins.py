@@ -5,17 +5,66 @@ from rest_framework.compat import coreschema
 from drf_query_filter.utils import ConnectorType
 
 
-class Range:
+class List:
     default_list_separator = ','
 
     def __init__(self, *args,
                  list_separator: str = None,
-                 equal: bool = False,
-                 allow_empty: bool = True,
-                 **kwargs):
+                 allow_empty: bool = True, **kwargs):
+        self.list_separator = list_separator or self.default_list_separator
+        self.allow_empty = allow_empty
+        super().__init__(*args, **kwargs)
+
+    def validate(self, value):
+        """ we need to divide the value into a list with the given separator """
+        value = value.split(self.list_separator)
+
+        new_values = []
+        for v in value:
+            if self.allow_empty and len(v) == 0:
+                new_values.append(None)  # ignore the value but push a null value
+            else:
+                new_values.append(super().validate(v))
+
+        return new_values
+
+    def get_description(self):
+        """
+        We update the original description by adding a format into it... since the
+        swagger specification does not support our interesting and complicated way to
+        pass a list of values
+        """
+        original_type = super().get_schema()
+        if 'format' in original_type:
+            schema_type = '%s:%s' % (
+                original_type.get('type', ''),
+                original_type['format']
+            )
+        else:
+            schema_type = original_type.get('type', '')
+        return '%s\n Format: %s' % (
+            super().get_description(),
+            schema_type,
+        )
+
+    def get_coreschema_field(self):
+        return coreschema.String(
+            format=r'(\w,)*?\w'
+        )
+
+    def get_schema(self):
+        return {
+            'type': 'string',
+            'format': r'(\w,)*?\w',
+        }
+
+
+class Range(List):
+    def __init__(self, *args,
+                 list_separator: str = None,
+                 equal: bool = False, **kwargs):
         self.list_separator = list_separator or self.default_list_separator
         self.equal = equal
-        self.allow_empty = allow_empty
         self.target_fields = None
         super().__init__(*args, **kwargs)
 
@@ -33,7 +82,7 @@ class Range:
 
     def validate(self, value):
         """ we need to divide the value into two values """
-        value = value.split(self.list_separator)
+        value = super().validate(value)
 
         # check length
         if len(value) < 2:
@@ -42,13 +91,7 @@ class Range:
                 len(value),
                 code='not_enough_values')
 
-        new_values = []
-        for v in value:
-            if self.allow_empty and len(v) == 0:
-                new_values.append(None)  # ignore the value but push a null value
-            else:
-                new_values.append(super().validate(v))
-        return new_values
+        return value
 
     def get_query(self):
         query = Q(_connector=self.connector)
@@ -65,30 +108,31 @@ class Range:
                 query |= Q(**query_dict)
         return query
 
-    def get_description(self):
-        """ We update the original description by adding a format into it... since the
-        swagger specification does not support our interesting and complicated way to
-        pass a range values"""
-        original_type = super().get_schema()
-        if 'format' in original_type:
-            schema_type = '%s:%s' % (
-                original_type.get('type', ''),
-                original_type['format']
-            )
-        else:
-            schema_type = original_type.get('type', '')
-        return '%s\n Format: %s' % (
-            super().get_description(),
-            schema_type,
-        )
-
     def get_coreschema_field(self):
         return coreschema.String(
-            format=r'(\w*),(\w*)'
+            format=r'\w,\w'
         )
 
     def get_schema(self):
         return {
             'type': 'string',
-            'format': r'(\w*),(\w*)',
+            'format': r'\w,\w',
         }
+
+
+class In(List):
+    def get_target_fields(self):
+        return ['%s__in' % target_field for target_field in self.target_fields]
+
+    def get_query(self):
+        query = Q(_connector=self.connector)
+
+        query_dict = {}
+        for target_field in self.get_target_fields():
+            query_dict[target_field] = self.value
+
+            if self.connector == ConnectorType.AND:
+                query &= Q(**query_dict)
+            elif self.connector == ConnectorType.OR:
+                query |= Q(**query_dict)
+        return query

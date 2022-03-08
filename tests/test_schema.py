@@ -14,13 +14,19 @@ from drf_query_filter.fields import (
     RangeDecimalField,
     RangeDateTimeField,
     RangeDateField,
+    InIntegerField,
+    InChoicesField,
 )
 from drf_query_filter.filters import QueryParamFilter
 
 
 def test_generation_of_schema_list():
-    fields = Field('z') | ((Field('a') | Field('b')) & (Field('c') |
-                                                        Field('d')))
+    fields = (
+        Field('z') | (
+            (Field('a') | Field('b'))
+            & (Field('c') | Field('d')))
+    )
+
     fields &= Field('y')
     schema = fields.get_schema_operation_parameters()
     schema_target = [{
@@ -54,6 +60,8 @@ def test_all_fields_schema():
         RangeDecimalField,
         RangeDateTimeField,
         RangeDateField,
+        InIntegerField,
+        InChoicesField,
     ]
 
     # try not to crash

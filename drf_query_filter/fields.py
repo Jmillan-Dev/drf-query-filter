@@ -369,6 +369,15 @@ class RangeIntegerField(mixins.Range,
     pass
 
 
+class InIntegerField(mixins.In,
+                     IntegerField):
+    """
+    Accepts a list of integers in the string and generates a
+    query with __in
+    """
+    pass
+
+
 class FloatField(Field):
     """
     Field that only accepts floats values
@@ -602,6 +611,15 @@ class ChoicesField(Field):
             'type': 'string',
             'enum': self.get_choices_for_schema()
         }
+
+
+class InChoicesField(mixins.In,
+                     ChoicesField):
+    """
+    Accepts a list of integers in the string and generates a
+    query with __in
+    """
+    pass
 
 
 class BooleanField(ChoicesField):

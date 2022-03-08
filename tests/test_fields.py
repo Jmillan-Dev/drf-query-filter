@@ -27,6 +27,8 @@ from drf_query_filter.fields import (
     RangeIntegerField,
     RangeDecimalField,
     RangeDateField,
+    InIntegerField,
+    InChoicesField,
     default_timezone,
 )
 
@@ -337,32 +339,27 @@ class TestingRangeMixin(TestCase):
         field({'field': values})
         if is_true:
             self.assertTrue(field.is_valid(), field._errors)
+        else:
+            self.assertFalse(field.is_valid())
 
     def test_validate(self):
         field_classes = [RangeIntegerField, RangeFloatField, RangeDecimalField]
         for field_class in field_classes:
-            field = field_class('field')
-            field({'field': '1,10'})
-            self.assertTrue(field.is_valid(), field._errors)
-            field({'field': ',10'})
-            self.assertTrue(field.is_valid(), field._errors)
-            field({'field': '1,'})
-            self.assertTrue(field.is_valid(), field._errors)
+            self.validate(field_class, '1,10')
+            self.validate(field_class, ',10')
+            self.validate(field_class, '1,')
 
-        field = RangeDateField('field')
-        field({'field': '2020-1-1,2020-12-31'})
-        self.assertTrue(field.is_valid(), field._errors)
-        field({'field': ',2020-12-31'})
-        self.assertTrue(field.is_valid(), field._errors)
-        field({'field': '2020-1-1,'})
-        self.assertTrue(field.is_valid(), field._errors)
+        self.validate(RangeDateField, '2020-1-1,2020-12-31')
+        self.validate(RangeDateField, ',2020-12-31')
+        self.validate(RangeDateField, '2020-1-1,')
 
     def get_validate_query(self, field_class, value_a, value_b):
         field = field_class('field', equal=False)
         field({'field': '%s,%s' % (value_a, value_b)})
         self.assertTrue(field.is_valid(), field._errors)
-        self.assertEqual(str(field.get_query()),
-                         str(Q(**{'field__gt': value_a, 'field__lt': value_b})))
+        self.assertEqual(
+            str(field.get_query()),
+            str(Q(**{'field__gt': value_a, 'field__lt': value_b})))
         field = field_class('field', equal=True)
         field({'field': '%s,%s' % (value_a, value_b)})
         self.assertTrue(field.is_valid(), field._errors)
@@ -373,3 +370,47 @@ class TestingRangeMixin(TestCase):
         self.get_validate_query(RangeIntegerField, 1, 10)
         self.get_validate_query(RangeFloatField, 1.0, 10.0)
         self.get_validate_query(RangeDecimalField, Decimal(1), Decimal(10))
+
+
+class TestingInMixin(TestCase):
+    choices = (
+        (10, 'uno'),
+        (20, 'dos'),
+        (30, 'tres'),
+    )
+
+    def validate(self, field, values, is_true=True):
+        field({'field': values})
+        if is_true:
+            self.assertTrue(field.is_valid(), field._errors)
+        else:
+            self.assertFalse(field.is_valid())
+
+    def test_validate(self):
+        field = InIntegerField('field')
+        self.validate(field, '1,10,40')
+        self.validate(field, ',10')
+        self.validate(field, '1,')
+        self.validate(field, '1')
+
+        field = InChoicesField('field', choices=self.choices)
+        self.validate(field, '10,20')
+        self.validate(field, '10,20,30')
+        self.validate(field, '10')
+        self.validate(field, '10,50', False)
+        self.validate(field, '0,50', False)
+
+    def test_get_query(self):
+        field = InIntegerField('field')
+        field({'field': '9,7,5,4,3'})
+        field.is_valid()
+        self.assertEqual(
+            str(field.get_query()),
+            str(Q(**{'field__in': [9, 7, 5, 4, 3]})))
+
+        field = InChoicesField('field', choices=self.choices)
+        field({'field': '10,20'})
+        field.is_valid()
+        self.assertEqual(
+            str(field.get_query()),
+            str(Q(**{'field__in': ['10', '20']})))
