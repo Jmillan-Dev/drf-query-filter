@@ -21,11 +21,15 @@ class Range:
 
     def get_target_fields(self):
         if self.equal:
-            return [('%s__gte' % target_field, '%s__lte' % target_field) for target_field
-                    in self.target_fields]
+            return [
+                ('%s__gte' % target_field, '%s__lte' % target_field) for target_field
+                in self.target_fields
+            ]
         else:
-            return [('%s__gt' % target_field, '%s__lt' % target_field) for target_field
-                    in self.target_fields]
+            return [
+                ('%s__gt' % target_field, '%s__lt' % target_field) for target_field
+                in self.target_fields
+            ]
 
     def validate(self, value):
         """ we need to divide the value into two values """
@@ -34,7 +38,8 @@ class Range:
         # check length
         if len(value) < 2:
             raise ValidationError(
-                'Not enough values, was only given `%s`, it needs at least 2' % len(value),
+                'Not enough values, was only given `%s`, it needs at least 2' %
+                len(value),
                 code='not_enough_values')
 
         new_values = []

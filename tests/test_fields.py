@@ -326,7 +326,8 @@ class DateTimeFieldTests(TestCase):
 
         self.assertTrue(field.is_valid(), field._errors)
         self.assertNotEqual(field.value, _datetime)
-        self.assertEqual(field.value, timezone.make_aware(_datetime, default_timezone()))
+        self.assertEqual(field.value,
+                         timezone.make_aware(_datetime, default_timezone()))
 
 
 class TestingRangeMixin(TestCase):
