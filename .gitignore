@@ -1,44 +1,26 @@
-# IDE
-.idea
-
-# Distribution / packaging
-.Python
-venv/
-env/
-build/
-
-# PyInstaller
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Translations
-*.mo
-*.pot
-
-# Django stuff:
-.log
-
-# PyBuilder
-target/
-*.egg-info
-
-# ignore sqlite3 files
-*.sqlite3
-*.db
-
-# Vim tempfiles
+.idea/
 *.swp
 *.swo
 
-# Local settings
-local_settings.py
-
-# dist
+.Python/
+.mypy_cache/
+.pytest_cache/
+.tox/
+.venv/
+build/
 dist/
+tmp/
+coverage.*
+.coverage
 
-# python stuff
+*.manifest
+*.spec
+
+*.mo
+*.pot
+
+target/
+*.egg-info
+
 __pycache__
+*.pyc

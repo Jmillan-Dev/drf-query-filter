@@ -1,0 +1,15 @@
+[flake8]
+statistics = true
+extend-exclude =
+    .git/
+    .github/
+    .tox/
+    .venv/
+    build/
+    __pycache__/
+    tmp/
+max-line-length = 90
+max-doc-length = 90
+indent-size = 4
+inline-quotes = "
+multiline-quotes = '

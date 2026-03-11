@@ -1,0 +1,12 @@
+build
+twine
+
+flake8
+flake8-quotes
+pep8
+mypy
+django-stubs[mypy-compatible]
+djangorestframework-stubs[mypy-compatible]
+
+django>=5.0.0
+djangorestframework>=3.14.0
