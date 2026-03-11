@@ -1,138 +1,98 @@
+from abc import ABC
+from typing import Any
+
+
 from django.db.models import Q
-from rest_framework.exceptions import ValidationError
-from rest_framework.compat import coreschema
-
-from drf_query_filter.utils import ConnectorType
+from rest_framework.exceptions import ErrorDetail
 
 
-class List:
-    default_list_separator = ','
+class Empty:
+    pass
 
-    def __init__(self, *args,
-                 list_separator: str = None,
-                 allow_empty: bool = True, **kwargs):
+
+class Range(ABC):
+    default_list_separator = ","
+
+    def __init__(
+        self,
+        *args: Any,
+        list_separator: str | None = None,
+        equal: bool = False,
+        allow_empty: bool = True,
+        **kwargs: Any,
+    ):
         self.list_separator = list_separator or self.default_list_separator
+        self.equal = equal
         self.allow_empty = allow_empty
         super().__init__(*args, **kwargs)
 
-    def validate(self, value):
-        """ we need to divide the value into a list with the given separator """
-        value = value.split(self.list_separator)
+    def get_target_fields(
+        self, target_fields: list[str], equal: bool
+    ) -> list[tuple[str, str]]:
+        field_format = "{field}__{suffix}"
 
-        new_values = []
-        for v in value:
-            if self.allow_empty and len(v) == 0:
-                new_values.append(None)  # ignore the value but push a null value
-            else:
-                new_values.append(super().validate(v))
+        if equal:
+            greater, lesser = "gte", "lte"
+        else:
+            greater, lesser = "gt", "lt"
 
-        return new_values
-
-    def get_description(self):
-        """
-        We update the original description by adding a format into it... since the
-        swagger specification does not support our interesting and complicated way to
-        pass a list of values
-        """
-        original_type = super().get_schema()
-        if 'format' in original_type:
-            schema_type = '%s:%s' % (
-                original_type.get('type', ''),
-                original_type['format']
+        return [
+            (
+                field_format.format(field=target_field, suffix=greater),
+                field_format.format(field=target_field, suffix=lesser),
             )
+            for target_field in target_fields
+        ]
+
+    def perform_validation(self, raw_value: str) -> tuple[list[Any], Any]:
+        raw_value_list = raw_value.split(self.list_separator)
+
+        if len(raw_value_list) < 2:
+            return [ErrorDetail("Requires two values", code="not_enough_values")], None
+
+        errors: list[Any] = []
+
+        if raw_value_list[0]:
+            left_errors, left_value = super().perform_validation(  # type: ignore
+                raw_value_list[0]
+            )
+            errors.extend(left_errors)
+        elif self.allow_empty:
+            left_value = Empty()
         else:
-            schema_type = original_type.get('type', '')
-        return '%s\n Format: %s' % (
-            super().get_description(),
-            schema_type,
-        )
+            errors.append(ErrorDetail("Left value is empty", code="missing_left_value"))
+            left_value = Empty()
 
-    def get_coreschema_field(self):
-        return coreschema.String(
-            format=r'(\w,)*?\w'
-        )
-
-    def get_schema(self):
-        return {
-            'type': 'string',
-            'format': r'(\w,)*?\w',
-        }
-
-
-class Range(List):
-    def __init__(self, *args,
-                 list_separator: str = None,
-                 equal: bool = False, **kwargs):
-        self.list_separator = list_separator or self.default_list_separator
-        self.equal = equal
-        self.target_fields = None
-        super().__init__(*args, **kwargs)
-
-    def get_target_fields(self):
-        if self.equal:
-            return [
-                ('%s__gte' % target_field, '%s__lte' % target_field) for target_field
-                in self.target_fields
-            ]
+        if raw_value_list[1]:
+            right_errors, right_value = super().perform_validation(  # type: ignore
+                raw_value_list[1]
+            )
+            errors.extend(right_errors)
+        elif self.allow_empty:
+            right_value = Empty()
         else:
-            return [
-                ('%s__gt' % target_field, '%s__lt' % target_field) for target_field
-                in self.target_fields
-            ]
+            errors.append(ErrorDetail("Right value is empty", code="missing_right_value"))
+            right_value = Empty()
 
-    def validate(self, value):
-        """ we need to divide the value into two values """
-        value = super().validate(value)
+        return errors, [left_value, right_value]
 
-        # check length
-        if len(value) < 2:
-            raise ValidationError(
-                'Not enough values, was only given `%s`, it needs at least 2' %
-                len(value),
-                code='not_enough_values')
-
-        return value
-
-    def get_query(self):
-        query = Q(_connector=self.connector)
-        for target_field_gt, target_field_lt in self.get_target_fields():
-            query_dict = {}
-            if self.value[0]:
-                query_dict[target_field_gt] = self.value[0]
-            if self.value[1]:
-                query_dict[target_field_lt] = self.value[1]
-
-            if self.connector == ConnectorType.AND:
-                query &= Q(**query_dict)
-            elif self.connector == ConnectorType.OR:
-                query |= Q(**query_dict)
-        return query
-
-    def get_coreschema_field(self):
-        return coreschema.String(
-            format=r'\w,\w'
-        )
-
-    def get_schema(self):
-        return {
-            'type': 'string',
-            'format': r'\w,\w',
-        }
-
-
-class In(List):
-    def get_target_fields(self):
-        return ['%s__in' % target_field for target_field in self.target_fields]
-
-    def get_query(self):
-        query = Q(_connector=self.connector)
-
+    def get_query(self, value: Any) -> Q:
+        left_value, right_value = value
         query_dict = {}
-        for target_field in self.get_target_fields():
-            query_dict[target_field] = self.value
 
-            if self.connector == ConnectorType.AND:
-                query &= Q(**query_dict)
-            elif self.connector == ConnectorType.OR:
-                query |= Q(**query_dict)
-        return query
+        for target_field_gt, target_field_lt in self.get_target_fields(
+            self.target_fields, self.equal  # type: ignore
+        ):
+            if not isinstance(left_value, Empty):
+                query_dict[target_field_gt] = left_value
+            if not isinstance(right_value, Empty):
+                query_dict[target_field_lt] = right_value
+
+        return Q(**query_dict, _connector=self.connector)  # type: ignore
+
+    def get_schema(self) -> dict[str, Any]:
+        # This is probably very wrong
+        return {
+            "type": "string",
+            "format": r"\w,\w",
+        }

@@ -1,0 +1,108 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drf-query-filter"
+description = """
+A django app to apply filters on rest endpoints
+using the query params.
+"""
+dynamic = ["version"]
+license = {file = "LICENSE"}
+readme = "README.md"
+authors = [
+    { name="Josué Millán Zamora", email="jmillan.dev@protonmail.com" },
+]
+classifiers = [
+    "Development Status :: 1 - Beta",
+    "Intended Audience :: Developers",
+    "Framework :: Django",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Internet :: WWW/HTTP",
+]
+keywords = [
+    "drf-query-filter",
+    "filters",
+    "queryparameters",
+    "django",
+    "restframework",
+]
+requires-python = ">=3.12"
+dependencies = [
+    "django>=5.0.0",
+    "djangorestframework>=3.14.0",
+]
+
+[project.urls]
+# Still need to add documentation about the project
+Repository = "https://github.com/Jmillan-Dev/drf-query-filter"
+Issues = "https://github.com/Jmillan-Dev/drf-query-filter/issues"
+Changelog = "https://github.com/Jmillan-Dev/drf-query-filter/CHANGELOG.md"
+
+[dependency-groups]
+dev = [
+  { include-group = "type" }
+]
+test = [
+  "pytest",
+  "pytest-cov",
+  "pytest-django",
+]
+django50 = ["django>=5.0,<5.1", "djangorestframework"]
+django51 = ["django>=5.1,<5.2", "djangorestframework"]
+django52 = ["django>=5.2,<6.0", "djangorestframework"]
+django60 = ["django>=6.0,<6.1", "djangorestframework"]
+
+[tool.setuptools]
+packages = ["drf_query_filter"]
+
+[tool.setuptools.dynamic]
+version = {attr = "drf_query_filter.__version__"}
+
+[tool.pytest.ini_options]
+addopts = "--tb=short --strict-markers -ra"
+testpaths = ["tests"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+mypy_path = "$MYPY_CONFIG_FILE_DIR"
+
+[tool.isort]
+profile = "black"
+combine_as_imports = true
+ensure_newline_before_comments = true
+force_grid_wrap = 2
+include_trailing_comma = true
+line_length = 90
+lines_between_sections = 2
+multi_line_output = 3
+skip_gitignore = true
+split_on_trailing_comma = true
+use_parentheses = true
+
+[tool.black]
+target-version = ["py312"]
+line_length = 90
+
+[tool.coverage.run]
+source = ["."]
+branch = true
+parallel = true
+
+[tool.coverage.report]
+include = ["drf_query_filter/*", "tests/*"]
+skip_covered = true
+show_missing = true
+sort = "-cover"
+exclude_lines = [
+    "\\#\\s*pragma: no cover",
+    "^if __name__ == ['\"]__main__['\"]:$",
+    "raise NotImplementedError",
+]

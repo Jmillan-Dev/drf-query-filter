@@ -1,467 +1,547 @@
-from typing import List, Callable, Union, Tuple, Dict, Any, Optional, Type
 import datetime
 import decimal
 import itertools
-import re
-import inspect
+import logging
+from collections.abc import Callable
+from typing import Any
+
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models.fields import CharField as DjangoCharField
+from django.db.models import QuerySet
 from django.db.models.enums import Choices
+from django.db.models.fields import (
+    CharField as DjangoCharField,
+    Field as DjangoField,
+)
 from django.db.models.functions import Concat
 from django.db.models.query_utils import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-from rest_framework.compat import coreapi, coreschema
-from rest_framework.exceptions import ValidationError
-from rest_framework.fields import get_error_detail
+from rest_framework.exceptions import (
+    ErrorDetail,
+    ValidationError,
+)
+from rest_framework.fields import (
+    flatten_choices_dict,
+    get_error_detail,
+    to_choices_dict,
+)
 
-from drf_query_filter import mixins
-from drf_query_filter.utils import ConnectorType, choices2help_text
 
+from .mixins import Range
 
-class Empty:
-    """ Dummy class just to represent a True None value """
-    def __str__(self):
-        return '<Empty>'
+__all__ = [
+    "Field",
+    "ListField",
+    "StringField",
+    "IntegerField",
+    "FloatField",
+    "DecimalField",
+    "DateTimeField",
+    "DateField",
+    "ChoicesField",
+    "BooleanField",
+    "ExistsField",
+    "ConcatField",
+    "RangeIntegerField",
+    "RangeFloatField",
+    "RangeDecimalField",
+    "RangeDateTimeField",
+    "RangeDateField",
+    "InIntegerField",
+    "InChoicesField",
+]
+
+log = logging.getLogger("drf_query_filter")
 
 
 class Node:
-    internal_error_messages = {
-        'value_error': 'cannot perform the operation with the given instance'
+    internal_error_messages: dict[str, str] = {
+        "value_error": "cannot perform the operation with the given instance"
     }
 
-    def __init__(self, children=None, connector=None):
-        self.children: List[Node] = children or list()
-        self.connector: ConnectorType = connector or ConnectorType.AND
+    def __init__(
+        self,
+        childrens: list["Node"],
+        connector: str = Q.AND,
+    ) -> None:
+        self.childrens = childrens or list()
+        self.connector = connector
 
-    def __and__(self, other):
+    def __and__(self, other: "Node") -> "Node":
         if not isinstance(other, Node):
-            raise ValueError(self.internal_error_messages['value_error'])
+            raise ValueError(self.internal_error_messages["value_error"])
 
-        if self.connector == ConnectorType.AND:
-            self.children.append(other)
+        if self.connector == Q.AND:
+            self.childrens.append(other)
             return self
         else:
-            node = Node(children=[self, other], connector=ConnectorType.AND)
+            node = Node(childrens=[self, other], connector=Q.AND)
             return node
 
-    def __or__(self, other):
+    def __or__(self, other: "Node") -> "Node":
         if not isinstance(other, Node):
-            raise ValueError(self.internal_error_messages['value_error'])
+            raise ValueError(self.internal_error_messages["value_error"])
 
-        if self.connector == ConnectorType.OR:
-            self.children.append(other)
+        if self.connector == Q.OR:
+            self.childrens.append(other)
             return self
         else:
-            node = Node(children=[self, other], connector=ConnectorType.OR)
+            node = Node(childrens=[self, other], connector=Q.OR)
             return node
 
-    def __repr__(self):
-        if self.children:
-            return '(%(connector)s: [%(children)s])' % \
-                   {
-                       'connector': self.connector.value,
-                       'children':  ', '.join(
-                           [repr(child) for child in self.children]),
-                   }
-        return '`EMPTY NODE`'
+    def __xor__(self, other: "Node") -> "Node":
+        if not isinstance(other, Node):
+            raise ValueError(self.internal_error_messages["value_error"])
+
+        if self.connector == Q.XOR:
+            self.childrens.append(other)
+            return self
+        else:
+            node = Node(childrens=[self, other], connector=Q.XOR)
+            return node
+
+    def __repr__(self) -> str:
+        if self.childrens:
+            return "{connector}({children})".format(
+                connector=self.connector,
+                children=", ".join([repr(child) for child in self.childrens]),
+            )
+        return "`EMPTY NODE`"
 
     @property
-    def errors(self) -> Dict:
-        # Gather errors of all the nested children
+    def errors(self) -> dict[str, list[str]]:
         errors = {}
-        for child in self.children:
+        for child in self.childrens:
             errors.update(child.errors)
         return errors
 
-    def get_filter(self, data) -> Tuple[Q, Dict]:
+    def get_filter(
+        self, data: dict[str, str]
+    ) -> tuple[Q, dict[str, str], dict[str, list[Any]]]:
         annotate = {}
-        query = Q(_connector=self.connector.value)
-        for child in self.children:
-            _query, _annotate = child.get_filter(data)
-            annotate.update(_annotate)
-            if self.connector == ConnectorType.AND:
-                query &= _query
-            else:
-                query |= _query
-        return query, annotate
+        errors: dict[str, list[Any]] = {}
+        query = Q(_connector=self.connector)
 
-    def filter(self, queryset, data,
-               raise_exceptions=False) -> Tuple[Any, Dict]:
-        # This gets the query and annotate of all children and itself
-        query, annotate = self.get_filter(data)
+        for child in self.childrens:
+            child_query, child_annotate, child_errors = child.get_filter(data)
 
-        # Check if there is no error if raise_exceptions is True
-        errors = self.errors
+            if child_errors:
+                errors.update(errors)
+
+            annotate.update(child_annotate)
+            if self.connector == Q.AND:
+                query &= child_query
+            elif self.connector == Q.OR:
+                query |= child_query
+            elif self.connector == Q.XOR:
+                query ^= child_query
+
+        return query, annotate, errors
+
+    def filter(
+        self,
+        queryset: QuerySet,  # type: ignore
+        data: dict[str, str],
+        raise_exceptions: bool = False,
+    ) -> tuple[QuerySet, dict[str, Any]]:  # type: ignore
+        query, annotate, errors = self.get_filter(data)
+
         if errors and raise_exceptions:
-            return queryset, errors
+            raise ValidationError(errors)
 
         if annotate:
-            queryset = queryset.annotate(**annotate)
+            queryset = queryset.alias(**annotate)
         if query:
             queryset = queryset.filter(query)
 
-        return queryset, {}
+        return queryset, errors
 
-    def get_coreapi_fields(self) -> list:
-        # get all the children and return the results
-
-        schema = list(itertools.chain.from_iterable(
-            child.get_coreapi_fields() for child in self.children
-        ))
-
-        return schema
-
-    def get_schema_operation_parameters(self) -> List[dict]:
-        # get all the children and return the results
-
-        schema = list(itertools.chain.from_iterable(
-            child.get_schema_operation_parameters() for child in self.children
-        ))
+    def get_schema_operation_parameters(self) -> list[dict[str, Any]]:
+        schema = list(
+            itertools.chain.from_iterable(
+                child.get_schema_operation_parameters() for child in self.childrens
+            )
+        )
 
         return schema
 
 
 class Field(Node):
+    """
+    This is a Base class for all Field related to the filter.
 
-    def __init__(self,
-                 field_name: str,
-                 target_fields: Optional[Union[str, List, Tuple]] = None,
-                 validators: List[Callable] = None,
-                 description: str = "",
-                 connector: ConnectorType = ConnectorType.AND):
+    Initizalization of the class is to define the behaviour of the field.
+    Use get_filter to process the incoming query_params dictionary and
+     obtain a Q object
+    """
+
+    def __init__(
+        self,
+        query_param_name: str,
+        target_fields: str | tuple[str, ...] | list[str] | None = None,
+        validators: list[Callable[[Any], None]] | None = None,
+        description: str = "",
+        example: str = "",
+        connector: str = Q.AND,
+    ) -> None:
         """
-        Base field or String Field.
-        :param field_name: The name in the query params of the url.
+        :param query_param_name: The name in the query params of the url.
         :param target_fields: The target fields in the queryset, This can be a
         string or a iterable of strings.
-        :param validators: A list of class validators to call in the validation
-        process.
+        :param validators: List of validators to validate against
         :param description: Description used in schema definition.
+        :param example: Example
         :param connector: Type of connector in the target fields.
         """
-        self.field_name: str = field_name
-        assert self.field_name, (
-            '%s.field_name cannot be empty.' % self.__class__.__name__)
+        self.query_param_name = query_param_name
 
-        self.target_fields = target_fields or self.field_name
+        assert self.query_param_name, "{}.query_param_name cannot be empty.".format(
+            self.__class__.__name__
+        )
 
-        assert isinstance(self.target_fields, (str, list, tuple)), (
-            'given target_fields is a `%s`,'
-            'expected a str or a list/tuple.' %
+        self.target_fields = target_fields or self.query_param_name
+
+        assert isinstance(
+            self.target_fields, (str, list, tuple)
+        ), "given target_fields is a `{}`," "expected a str or a list/tuple.".format(
             type(self.target_fields)
         )
 
         if isinstance(self.target_fields, str):
             self.target_fields = [self.target_fields]
 
-        self.validators: List[Callable] = validators
-
-        # value got from the query param request
-        self._raw_value: Any = Empty()
-        self._value: Any = self._raw_value  # transformed value
-        self.no_value: bool = True  # Flag to check if this
-        self._errors: List = []  # the list of errors we got
-
+        self.validators = validators or []
         self.description = description
+        self.example = example
 
-        super().__init__(None, connector=connector)
+        super().__init__(childrens=[], connector=connector)
 
-    def __call__(self, query_data: Dict) -> bool:
-        """
-        Try to find the value from the given field, if it doesn't find it then
-        sets _raw_value as Empty()
-        """
+    def __str__(self) -> str:
+        if self.childrens:
+            return "{query_param} {connector} {childrens}".format(
+                query_param=self.query_param_name,
+                connector=self.connector,
+                childrens=" {} ".format(self.connector).join(
+                    (repr(child) if not child.childrens else "({:r})".format(child))
+                    for child in self.childrens
+                ),
+            )
+        return self.query_param_name
 
-        if self.field_name in query_data:
-            self._raw_value = query_data[self.field_name]
-            return True
-        else:
-            self._raw_value = Empty()
-            return False
+    def __repr__(self) -> str:
+        return ("{class_name}(query_param={query_param}, childrens={childrens})").format(
+            class_name=self.__class__.__name__,
+            query_param=self.query_param_name,
+            childrens=", ".join(repr(children) for children in self.childrens),
+        )
 
-    def __repr__(self):
-        if self.children:
-            return '(%(connector)s: [%(field_name)s, %(children)s])' % \
-                   {
-                       'connector':  self.connector.value,
-                       'field_name': self.field_name,
-                       'children':   ', '.join(
-                           [repr(child) for child in self.children]),
-                   }
-        return '%(field_name)s' % {'field_name': self.field_name}
-
-    @property
-    def value(self) -> Any:
-        assert not isinstance(self._value, Empty), (
-            'you must call is_valid first')
-        return self._value
-
-    @property
-    def errors(self) -> Dict:
-        errors = {}
-        if self._errors:
-            errors.update({self.field_name: self._errors})
-        for child in self.children:
-            errors.update(child.errors)
-        return errors
-
-    def validate(self, value: Any) -> Any:
+    def validate(self, raw_value: str) -> Any:
         """
         Function for custom validations, if there is any error it should throw
         a ValidationError Exception.
         This can also manipulate the value if required.
         """
-        return value
+        return raw_value
 
-    def run_validators(self, value: Any) -> None:
-        """ This runs the validators like the fields in rest_framework """
-        if self.validators:
-            for validator in self.validators:
-                # Run all the validators and gather all the errors raised by
-                #  them
-                try:
-                    validator(value)
-                except ValidationError as exc:
-                    self._errors.extend(exc.detail)
-                except DjangoValidationError as exc:
-                    self._errors.extend(get_error_detail(exc))
-
-    def is_valid(self) -> bool:
-        self._errors = []  # Clean all the previous errors
-
-        assert not isinstance(self._raw_value, Empty), \
-            'you cannot call is_valid without giving a value first'
+    def perform_validation(self, raw_value: str) -> tuple[list[Any], Any]:
+        """This runs the validators like the fields in rest_framework"""
+        errors: list[Any] = []
+        value = None
 
         try:
-            self._value = self.validate(self._raw_value)
+            value = self.validate(raw_value)
+
+            for validator in self.validators:
+                validator(value)
         except ValidationError as exc:
-            self._errors.extend(exc.detail)
+            if isinstance(exc.detail, list):
+                errors.extend(exc.detail)
+            else:
+                errors.append(exc.detail)
         except DjangoValidationError as exc:
-            self._errors.extend(get_error_detail(exc))
-        else:
-            self.run_validators(self._value)
+            detail = get_error_detail(exc)
+            if isinstance(detail, list):
+                errors.extend(detail)
+            else:
+                errors.append(detail)
 
-        return len(self._errors) == 0
+        return errors, value
 
-    def get_value_query(self) -> Any:
-        """
-        This should be overwritten if the desire data needs to be manipulated
-        for the query
-        """
-        return self.value
+    def get_raw_value_from_query_param(
+        self, query_param_data: dict[str, str]
+    ) -> tuple[bool, Any]:
+        try:
+            return True, query_param_data[self.query_param_name]
+        except KeyError:
+            return False, None
 
-    def get_annotate(self) -> Dict:
+    def get_annotate(self) -> dict[str, Any]:
         """
         This should be overwritten if the field requires to annotate custom
         fields in the query
         """
         return {}
 
-    def get_query(self) -> Q:
-        query = Q(_connector=self.connector.value)
-        value = self.get_value_query()
-        for field in self.target_fields:
-            if self.connector == ConnectorType.AND:
-                query &= Q(**{field: value})
-            elif self.connector == ConnectorType.OR:
-                query |= Q(**{field: value})
+    def get_query(self, value: Any) -> Q:
+        return Q(
+            **{field: value for field in self.target_fields},
+            _connector=self.connector,
+        )
 
-        return query
+    def get_filter(
+        self, query_param_data: dict[str, str]
+    ) -> tuple[Q, dict[str, str], dict[str, list[Any]]]:
+        found, raw_value = self.get_raw_value_from_query_param(query_param_data)
+        errors = {}
+        annotate = {}
+        query = Q(_connector=self.connector)
 
-    def get_filter(self, data) -> Tuple[Q, Dict]:
-        if self(data) and self.is_valid():
-            annotate = self.get_annotate()
-            query = self.get_query()
-        else:
-            annotate = {}
-            query = Q(_connector=self.connector)
-        for child in self.children:
-            _query, _annotate = child.get_filter(data)
-            annotate.update(_annotate)
-            if self.connector == ConnectorType.AND:
-                query &= _query
+        if found:
+            self_errors, value = self.perform_validation(raw_value)
+
+            if not self_errors:
+                query = self.get_query(value)
+                annotate = self.get_annotate()
             else:
-                query |= _query
-        return query, annotate
+                errors = {self.query_param_name: self_errors}
 
-    def get_description(self) -> str:
-        return self.description
+        for child in self.childrens:
+            child_query, child_annotate, child_errors = child.get_filter(query_param_data)
+            if child_errors:
+                errors.update(child_errors)
+            else:
+                annotate.update(child_annotate)
+                if self.connector == Q.AND:
+                    query &= child_query
+                elif self.connector == Q.OR:
+                    query |= child_query
+                elif self.connector == Q.XOR:
+                    query ^= child_query
 
-    def get_example(self) -> str:
-        return ''
+        return query, annotate, errors
 
-    def get_coreschema_field(self):
-        # Cannot really write type definition of `coreschema` since
-        # it will get evaluated when the coreschema it's not installed and the
-        # target project does not require it.
-        return coreschema.String()
+    def get_schema(self) -> dict[str, Any]:
+        return {"type": "string"}
 
-    def get_coreapi_fields(self) -> list:
-        # Cannot really write type definition of `coreapi.Field` since
-        # it will get evaluated when the coreapi it's not installed and the
-        # target project does not require it.
-        schema = list(itertools.chain.from_iterable(
-            child.get_coreapi_fields() for child in self.children
-        ))
+    def get_schema_operation_parameter(self) -> dict[str, Any]:
+        return {
+            "name": self.query_param_name,
+            "required": False,
+            "in": "query",
+            "description": self.description,
+            "example": self.example,
+            "schema": self.get_schema(),
+        }
 
-        return [coreapi.Field(
-            name=self.field_name,
-            required=False,  # for now there it's no requirement
-            location='query',
-            description=self.get_description(),
-            schema=self.get_coreschema_field(),
-            example=self.get_example(),
-        )] + schema
+    def get_schema_operation_parameters(self) -> list[dict[str, Any]]:
+        schema: list[dict[str, Any]] = [self.get_schema_operation_parameter()]
 
-    def get_schema(self) -> dict:
-        return {'type': 'string'}
+        if self.childrens:
+            schema.extend(
+                itertools.chain.from_iterable(
+                    child.get_schema_operation_parameters() for child in self.childrens
+                )
+            )
 
-    def get_schema_operation_parameters(self) -> List[dict]:
-        schema = list(itertools.chain.from_iterable(
-            child.get_schema_operation_parameters() for child in self.children
-        ))
+        return schema
 
-        return [{
-            'name':        self.field_name,
-            'required':    False,
-            'in':          'query',
-            'description': self.get_description(),
-            'schema':      self.get_schema(),
-            'example':     self.get_example(),
-        }] + schema
+
+class ListField(Field):
+    """
+    ListField executes
+    """
+
+    def __init__(
+        self,
+        field: Field,
+    ) -> None:
+        self.field = field
+
+        self.query_param_name = self.field.query_param_name
+        self.description = self.field.description
+        self.example = self.field.example
+
+        if self.field.childrens:
+            log.warning("Given field has childrens")
+
+        super().__init__(
+            self.field.query_param_name,
+            self.field.target_fields,
+            self.field.validators,
+            self.field.description,
+            self.field.example,
+            self.field.connector,
+        )
+
+    def perform_validation(self, raw_value: str) -> tuple[list[Any], Any]:
+        raw_values = raw_value.split(",")
+
+        validated_values = []
+        errors: list[Any] = []
+
+        for raw_val in raw_values:
+            if raw_val:
+                field_errors, value = self.field.perform_validation(raw_val)
+
+                if field_errors:
+                    errors.extend(field_errors)
+                else:
+                    validated_values.append(value)
+
+        if not validated_values:
+            errors.append(
+                ErrorDetail("No values has been passed", code="no_values_given")
+            )
+
+        return errors, validated_values
+
+    def get_query(self, value: list[Any]) -> Q:
+        return Q(
+            **{field: value for field in self.target_fields},
+            _connector=self.connector,
+        )
+
+    def get_schema(self) -> dict[str, Any]:
+        return {
+            "type": "array",
+            "items": self.field.get_schema(),
+        }
+
+    def get_schema_operation_parameter(self) -> dict[str, Any]:
+        return {
+            "name": self.query_param_name,
+            "required": False,
+            "in": "query",
+            "description": self.description,
+            "example": self.example,
+            "schema": self.get_schema(),
+            "style": "form",
+        }
+
+
+class StringField(Field):
+    def __init__(
+        self,
+        query_param_name: str,
+        target_fields: str | tuple[str, ...] | list[str] | None = None,
+        validators: list[Callable[[Any], None]] | None = None,
+        description: str = "",
+        example: str = "",
+        schema_format: str = "",
+        connector: str = Q.AND,
+    ) -> None:
+        super().__init__(
+            query_param_name,
+            target_fields,
+            validators,
+            description,
+            example,
+            connector,
+        )
+        self.schema_format = schema_format
+
+    def validate(self, value: str) -> Any:
+        return value
+
+    def get_schema(self) -> dict[str, Any]:
+        return {
+            "type": "string",
+            "format": self.schema_format,
+        }
 
 
 class IntegerField(Field):
     """
     Field that only accepts integers as values
     """
+
     error_messages = {
-        'invalid': _('“%(value)s” value must be an integer.'),
+        "invalid": _("`{value}` value must be an integer."),
     }
 
-    def validate(self, value):
+    def validate(self, value: str) -> Any:
         try:
             return int(value)
         except (TypeError, ValueError):
             raise ValidationError(
-                self.error_messages['invalid'] % {'value': value},
-                code='invalid')
+                self.error_messages["invalid"].format(value=value),
+                code="invalid",
+            )
 
-    def get_coreschema_field(self):
-        return coreschema.Integer()
-
-    def get_schema(self) -> dict:
+    def get_schema(self) -> dict[str, str]:
         return {
-            'type':   'number',
-            'format': 'int32',
+            "type": "number",
+            "format": "int",
         }
-
-
-class RangeIntegerField(mixins.Range,
-                        IntegerField):
-    """
-    Accepts two integer values in the string and generate a
-    query with greater than and/or lesser than in the target fields.
-    """
-    pass
-
-
-class InIntegerField(mixins.In,
-                     IntegerField):
-    """
-    Accepts a list of integers in the string and generates a
-    query with __in
-    """
-    pass
 
 
 class FloatField(Field):
     """
     Field that only accepts floats values
     """
+
     error_messages = {
-        'invalid': _('“%(value)s” value must be a float.'),
+        "invalid": _("`{value}` value must be a float."),
     }
 
-    def validate(self, value):
-        """ Try to parse the value into a float """
+    def validate(self, value: str) -> Any:
         try:
             return float(value)
         except (TypeError, ValueError):
             raise ValidationError(
-                self.error_messages['invalid'] % {'value': value},
-                code='invalid')
+                self.error_messages["invalid"].format(value=value),
+                code="invalid",
+            )
 
-    def get_coreschema_field(self):
-        return coreschema.Number()
-
-    def get_schema(self) -> dict:
+    def get_schema(self) -> dict[str, str]:
         return {
-            'type':   'number',
-            'format': 'float',
+            "type": "number",
+            "format": "float",
         }
-
-
-class RangeFloatField(mixins.Range,
-                      FloatField):
-    """
-    Accepts two float values in the string and generate a query with
-    greater than and/or lesser than in the target fields.
-    """
-    pass
 
 
 class DecimalField(Field):
     """
     Field that only accepts Decimal values
     """
+
     error_messages = {
-        'invalid': _('“%(value)s” value must be a double.'),
+        "invalid": _("`{value}` value must be a double."),
+        "is_nan": _("`{value}` value must not be NaN"),
+        "is_inf": _("`{value}` value must not be Infinite"),
     }
 
-    def validate(self, value):
+    def validate(self, value: str) -> Any:
         try:
-            value = decimal.Decimal(value)
+            value_decimal = decimal.Decimal(value)
         except (decimal.InvalidOperation, TypeError, ValueError):
             raise ValidationError(
-                self.error_messages['invalid'] % {'value': value},
-                code='invalid')
+                self.error_messages["invalid"].format(value=value),
+                code="invalid",
+            )
 
-        if value.is_nan():
+        if value_decimal.is_nan():
             raise ValidationError(
-                self.error_messages['invalid'] % {'value': value},
-                code='invalid')
+                self.error_messages["is_nan"].format(value=value), code="is_nan"
+            )
 
-        if value in (decimal.Decimal('Inf'), decimal.Decimal('-Inf')):
+        if value_decimal in (decimal.Decimal("Inf"), decimal.Decimal("-Inf")):
             raise ValidationError(
-                self.error_messages['invalid'] % {'value': value},
-                code='invalid')
+                self.error_messages["is_inf"].format(value=value), code="is_inf"
+            )
 
-        return value
+        return value_decimal
 
-    def get_coreschema_field(self):
-        return coreschema.Number()
-
-    def get_schema(self) -> dict:
+    def get_schema(self) -> dict[str, Any]:
         return {
-            'type':   'number',
-            'format': 'double',
+            "type": "number",
+            "format": "decimal",
         }
 
 
-class RangeDecimalField(mixins.Range,
-                        DecimalField):
-    """
-    Accepts two Decimal values in the string and generate a query with greater
-    than or lesser than in the target fields.
-    """
-    pass
-
-
-def default_timezone():
+def default_timezone() -> Any | None:
     return timezone.get_current_timezone() if settings.USE_TZ else None
 
 
@@ -469,86 +549,78 @@ class DateTimeField(Field):
     """
     Field that only accepts values that can be parsed into datetime
     """
+
     error_messages = {
-        'wrong_format': 'Value %(value)s does not have the correct format,'
-                        ' should be %(date_format)s'
+        "wrong_format": (
+            "Value %(value)s does not have the correct format,"
+            " should be %(date_format)s"
+        )
     }
-    default_date_format = '%Y-%m-%dT%H:%M:%SZ'
+    default_date_format = "%Y-%m-%dT%H:%M:%SZ"
+    format = "date-time"
 
-    def __init__(self, *args, date_format: str = None, **kwargs):
-        self.date_format = date_format or self.default_date_format
-        super().__init__(*args, **kwargs)
-
-    def validate(self, value):
-        try:
-            date = datetime.datetime.strptime(value, self.date_format)
-            _timezone = default_timezone()
-            if _timezone and (
-                    date.tzinfo is None
-                    or date.tzinfo.utcoffset(date) is None):
-                return timezone.make_aware(date, _timezone)
-            return date
-        except ValueError:
-            raise ValidationError(
-                self.error_messages['wrong_format'] % {
-                    'value': value, 'date_format': self.date_format
-                }, code='wrong_format')
-
-    def get_coreschema_field(self):
-        return coreschema.String(
-            format='date-time'
+    def __init__(
+        self,
+        query_param_name: str,
+        target_fields: str | tuple[str, ...] | list[str] | None = None,
+        validators: list[Callable[[Any], None]] | None = None,
+        description: str = "",
+        example: str = "",
+        date_format: str = "",
+        make_aware: bool = True,
+        connector: str = Q.AND,
+    ) -> None:
+        super().__init__(
+            query_param_name,
+            target_fields,
+            validators,
+            description,
+            example,
+            connector,
         )
 
-    def get_schema(self) -> dict:
+        self.date_format = date_format or self.default_date_format
+        self.make_aware = make_aware
+
+    def validate(self, raw_value: Any) -> Any:
+        try:
+            dt = datetime.datetime.strptime(raw_value, self.date_format)
+            if self.make_aware:
+                _timezone = default_timezone()
+                if _timezone and (dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None):
+                    return timezone.make_aware(dt, _timezone)
+            return dt
+        except ValueError:
+            raise ValidationError(
+                self.error_messages["wrong_format"]
+                % {"value": raw_value, "date_format": self.date_format},
+                code="wrong_format",
+            )
+
+    def get_schema(self) -> dict[str, Any]:
         return {
-            'type':   'string',
-            'format': 'date-time',
+            "type": "string",
+            "format": self.format,
         }
-
-
-class RangeDateTimeField(mixins.Range,
-                         DateTimeField):
-    """
-    Accepts two datetime values in the string and generate a query with greater
-    than and/or lesser than in the target fields.
-    """
-    pass
 
 
 class DateField(DateTimeField):
     """
     Field that only accepts values that can be parsed into date
     """
-    default_date_format = '%Y-%m-%d'
 
-    def validate(self, value):
+    default_date_format = "%Y-%m-%d"
+    format = "date"
+
+    def validate(self, raw_value: str) -> Any:
         try:
-            date = datetime.datetime.strptime(value, self.date_format).date()
-            return date
+            return datetime.datetime.strptime(raw_value, self.date_format).date()
         except ValueError:
-            raise ValidationError(self.error_messages['wrong_format'] % {
-                'value': value, 'date_format': self.date_format},
-                code='wrong_format')
-
-    def get_coreschema_field(self):
-        return coreschema.String(
-            format='date'
-        )
-
-    def get_schema(self) -> dict:
-        return {
-            'type':   'string',
-            'format': 'date',
-        }
-
-
-class RangeDateField(mixins.Range,
-                     DateField):
-    """
-    Accepts two date values in the string and generate a query with greater
-    than and/or lesser than in the target fields.
-    """
-    pass
+            raise ValidationError(
+                self.error_messages["wrong_format"]
+                % {"value": raw_value, "date_format": self.date_format},
+                code="wrong_format",
+            )
 
 
 class ChoicesField(Field):
@@ -557,69 +629,50 @@ class ChoicesField(Field):
     This can handle custom messages for the error raised
     """
 
-    default_choices = []
-    default_validate_message = 'Value `%(value)s` is not a valid option,' \
-                               'Options are: %(choices)s '
+    default_validate_message = _("Given value `{value}` is not a valid option")
 
-    def __init__(self, *args,
-                 choices: Union[
-                     Type[Choices],
-                     List[Tuple[str, str]],
-                     List[str],
-                 ] = None,
-                 validate_message: str = "",
-                 **kwargs):
-
-        self.choices = self.sanitize_choices(choices or self.default_choices)
-
-        self.validate_message = validate_message or self.default_validate_message
-        super().__init__(*args, **kwargs)
-
-    def sanitize_choices(self, choices) -> List[Tuple[str, str]]:
-        """Makes sure that choices it's a valid type."""
-        if inspect.isclass(choices) and issubclass(choices, Choices):
-            choices = choices.choices
-        return [
-            (str(choice[0]), str(choice[1]))
-            if isinstance(choice, tuple) else (choice, Empty())
-            for choice in choices
-        ]
-
-    def validate(self, value):
-        if not any(value == choice[0] for choice in self.choices):
-            raise ValidationError(detail=self.validate_message % {
-                'value': value, 'choices': [
-                    choice[0] for choice in self.choices
-                ]
-            }, code='not_in_choices')
-        return value
-
-    def get_description(self) -> str:
-        return '%s%s' % (
-            self.description + '  \n' if self.description else '',
-            choices2help_text(self.choices)
+    def __init__(
+        self,
+        query_param_name: str,
+        choices: type[Choices] | list[tuple[str, Any]] | list[Any] | dict[str, Any],
+        target_fields: str | tuple[str, ...] | list[str] | None = None,
+        validators: list[Callable[[Any], None]] | None = None,
+        description: str = "",
+        example: str = "",
+        validate_message: str = "",
+        connector: str = Q.AND,
+    ) -> None:
+        super().__init__(
+            query_param_name,
+            target_fields,
+            validators,
+            description,
+            example,
+            connector,
         )
 
-    def get_choices_for_schema(self):
-        return [choice[0] for choice in self.choices]
+        if isinstance(choices, dict):
+            self.choices = choices
+        else:
+            grouped_choices = to_choices_dict(choices)
+            flatten_choices = flatten_choices_dict(grouped_choices)
+            self.choices = self.choices_string_to_values = {
+                str(key): value for key, value in flatten_choices.items()
+            }
 
-    def get_coreschema_field(self):
-        return coreschema.Enum(self.get_choices_for_schema())
+        self.validate_message = validate_message or self.default_validate_message
 
-    def get_schema(self):
-        return {
-            'type': 'string',
-            'enum': self.get_choices_for_schema()
-        }
+    def validate(self, raw_value: str) -> Any:
+        try:
+            return self.choices[raw_value]
+        except KeyError:
+            raise ValidationError(
+                detail=self.validate_message.format(value=raw_value),
+                code="not_in_choices",
+            )
 
-
-class InChoicesField(mixins.In,
-                     ChoicesField):
-    """
-    Accepts a list of integers in the string and generates a
-    query with __in
-    """
-    pass
+    def get_schema(self) -> dict[str, Any]:
+        return {"type": "string", "enum": list(self.choices.keys())}
 
 
 class BooleanField(ChoicesField):
@@ -627,24 +680,42 @@ class BooleanField(ChoicesField):
     Field that only accepts boolean related strings
     """
 
-    def __init__(self, *args, invert=False, **kwargs):
-        # ignore the kwargs of choices
-        kwargs['choices'] = [
-            ('true', True), ('True', True),
-            ('t', True), ('T', True),
-            ('1', True),
-            ('false', False), ('False', False),
-            ('f', False), ('F', False),
-            ('0', False),
-        ]
-        self.invert = invert
-        kwargs['validate_message'] = 'Value `%(value)s` is not a valid ' \
-            'boolean. Options are: %(choices)s '
-        super().__init__(*args, **kwargs)
+    TRUE_VALUES = ["true", "t", "1"]
+    FALSE_VALUES = ["false", "f", "0"]
+    default_validate_message = _("Given value `{value}` is not a valid boolean")
 
-    def validate(self, value):
-        value = super().validate(value)
-        return (value in ['true', 'True', 't', 'T', '1']) ^ self.invert
+    def __init__(
+        self,
+        query_param_name: str,
+        target_fields: str | tuple[str, ...] | list[str] | None = None,
+        validators: list[Callable[[Any], None]] | None = None,
+        description: str = "",
+        example: str = "",
+        invert: bool = False,
+        validate_message: str = "",
+        connector: str = Q.AND,
+    ) -> None:
+        choices = {}
+
+        for key in self.TRUE_VALUES:
+            choices[key] = True
+        for key in self.FALSE_VALUES:
+            choices[key] = False
+
+        super().__init__(
+            query_param_name,
+            choices,
+            target_fields,
+            validators,
+            description,
+            example,
+            validate_message,
+            connector,
+        )
+        self.invert = invert
+
+    def validate(self, raw_value: str) -> Any:
+        return super().validate(raw_value.lower()) ^ self.invert
 
 
 class ExistsField(Field):
@@ -653,11 +724,28 @@ class ExistsField(Field):
     This Field doesn't care for the value given
     """
 
-    def __init__(self, *args, return_value=None, **kwargs):
-        self.return_value = return_value
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        query_param_name: str,
+        target_fields: str | list[str] | list[str] | None = None,
+        validators: list[Callable[[Any], None]] | None = None,
+        description: str = "",
+        example: str = "",
+        return_value: Any | None = None,
+        connector: str = Q.AND,
+    ) -> None:
+        super().__init__(
+            query_param_name,
+            target_fields,
+            validators,
+            description,
+            example,
+            connector,
+        )
 
-    def get_value_query(self):
+        self.return_value = return_value
+
+    def validate(self, raw_value: str) -> Any:
         return self.return_value
 
 
@@ -665,33 +753,124 @@ class ConcatField(Field):
     """
     Concatenate Fields and query from that result
     """
-    invalid_characters = r'[\( \)\\/]'
 
-    def __init__(self, *args, **kwargs):
-        self.lookup = kwargs.pop('lookup', '')
-        self.target_field_name = kwargs.pop('target_field_name', '')
-        self.output_field = kwargs.pop('output_field', DjangoCharField())
-        super().__init__(*args, **kwargs)
-        if not self.target_field_name:
-            self.target_field_name = re.sub(
-                r'__+', '_', re.sub(
-                    self.invalid_characters, '_',
-                    '_'.join([str(value) for value in self.target_fields])
-                )
-            )
+    def __init__(
+        self,
+        query_param_name: str,
+        target_fields: list[Any] | Any,
+        validators: list[Callable[[Any], None]] | None = None,
+        lookup: str = "",
+        target_field_name: str = "",
+        output_field: DjangoField = DjangoCharField(),  # type: ignore
+        description: str = "",
+        example: str = "",
+        connector: str = Q.AND,
+    ) -> None:
+        super().__init__(
+            query_param_name,
+            target_fields,
+            validators,
+            description,
+            example,
+            connector,
+        )
 
-    def get_lookup(self):
-        return '__%s' % self.lookup if self.lookup else ''
+        if not target_fields:
+            raise ValueError("target_fields cannot be empty")
 
-    def get_query(self):
-        query = Q(**{
-            '%s%s' % (
-                self.target_field_name, self.get_lookup()
-            ): self.get_value_query()
-        })
-        return query
+        self.lookup = lookup
+        self.output_field = output_field
 
-    def get_annotate(self):
-        # concat values here
+        if not target_field_name:
+            self.target_field_name = "_{}".format(self.query_param_name)
+        else:
+            self.target_field_name = target_field_name
+
+    def get_target_field(self) -> str:
+        if self.lookup:
+            return "{}__{}".format(self.target_field_name, self.lookup)
+        return self.target_field_name
+
+    def get_query(self, value: Any) -> Q:
+        return Q(**{self.get_target_field(): value})
+
+    def get_annotate(self) -> dict[str, Any]:
         concat = Concat(*self.target_fields, output_field=self.output_field)
         return {self.target_field_name: concat}
+
+
+class RangeIntegerField(Range, IntegerField):
+    pass
+
+
+class RangeFloatField(Range, FloatField):
+    pass
+
+
+class RangeDecimalField(Range, DecimalField):
+    pass
+
+
+class RangeDateTimeField(Range, DateTimeField):
+    pass
+
+
+class RangeDateField(Range, DateField):
+    pass
+
+
+# === Just Keep... ===
+class InIntegerField(ListField):
+    def __init__(
+        self,
+        query_param_name: str,
+        target_fields: str | tuple[str, ...] | list[str] | None = None,
+        validators: list[Callable[[Any], None]] | None = None,
+        description: str = "",
+        example: str = "",
+        connector: str = Q.AND,
+    ) -> None:
+        field = IntegerField(
+            query_param_name,
+            target_fields,
+            validators,
+            description,
+            example,
+            connector,
+        )
+
+        super().__init__(field)
+
+        self.target_fields = [
+            "{}__in".format(target_field) for target_field in self.target_fields
+        ]
+
+
+class InChoicesField(ListField):
+    def __init__(
+        self,
+        query_param_name: str,
+        choices: type[Choices] | list[tuple[str, Any]] | list[str] | dict[str, Any],
+        target_fields: str | tuple[str, ...] | list[str] | None = None,
+        validators: list[Callable[[Any], None]] | None = None,
+        description: str = "",
+        example: str = "",
+        validate_message: str = "",
+        connector: str = Q.AND,
+    ) -> None:
+        field = ChoicesField(
+            query_param_name,
+            choices,
+            target_fields,
+            validators,
+            description,
+            example,
+            validate_message,
+            connector,
+        )
+
+        super().__init__(field)
+
+        self.target_fields = [
+            "{}__in".format(target_field) for target_field in self.target_fields
+        ]

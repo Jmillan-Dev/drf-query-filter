@@ -1,95 +1,165 @@
-from django.db.models import Q
-from django.test import TestCase
-from rest_framework.exceptions import ValidationError
-
-from drf_query_filter import fields, filters
-from drf_query_filter.utils import ConnectorType
+import datetime
+from zoneinfo import ZoneInfo
 
 
-class SimpleView:
+from django.db.models import (
+    Q,
+    Value,
+)
+from django.test import (
+    TestCase,
+    override_settings,
+)
+from django.urls import (
+    include,
+    path,
+)
+from rest_framework.permissions import AllowAny
+from rest_framework.routers import SimpleRouter
+from rest_framework.serializers import ModelSerializer
+from rest_framework.test import APIClient
+from rest_framework.viewsets import ReadOnlyModelViewSet
+
+
+from drf_query_filter import fields
+from drf_query_filter.filters import QueryParamFilter
+
+
+from .models import BasicModel
+
+
+class BasicModelSerializer(ModelSerializer[BasicModel]):
+    class Meta:
+        model = BasicModel
+        fields = "__all__"
+
+
+class ModelViewSet(ReadOnlyModelViewSet[BasicModel]):
+    queryset = BasicModel.objects.all().order_by("id")
+    permission_classes = [AllowAny]
+    serializer_class = BasicModelSerializer
+    filter_backends = [QueryParamFilter]
+
     query_params = [
-        fields.IntegerField('id') & fields.ChoicesField('state', choices=['A', 'S', 'N']),
-        fields.Field('search', ['name__icontains', 'category__name'],
-                     connector=ConnectorType.OR)
+        fields.IntegerField("pk")
+        & fields.ChoicesField("integer", choices=["10", "20", "30"]),
+        fields.StringField(
+            "search_startswith",
+            ["string_uno__istartswith", "string_dos__istartswith"],
+            connector=Q.OR,
+        ),
+        fields.StringField(
+            "search_exact",
+            ["string_uno", "string_dos"],
+            connector=Q.OR,
+        ),
+        fields.ConcatField(
+            "string_concat",
+            ["string_uno", Value(" "), "string_dos"],
+            lookup="icontains",
+        ),
+        fields.BooleanField("boolean") | fields.RangeDateField("date", equal=True),
     ]
-
-    def __init__(self, raise_exceptions=False, **kwargs):
-        self.query_raise_exceptions = raise_exceptions
-        if 'query_params' in kwargs:
-            self.query_params = kwargs.get('query_params')
+    query_raise_exceptions = True
 
 
-class FakeQuerySet:
-    def __init__(self):
-        self.query = list()
-        self.annotate = list()
+router = SimpleRouter()
+router.register("test", ModelViewSet)
 
-    def annotate(self, **kwargs):
-        self.annotate.append(kwargs)
-        return self
-
-    def filter(self, query):
-        self.query.append(query)
-        return self
+urlpatterns = [path("api/", include(router.urls))]
 
 
-class FakeRequest:
-    def __init__(self, **kwargs):
-        self.query_params = kwargs
-
-
+@override_settings(ROOT_URLCONF="tests.test_filters")
 class FilterTests(TestCase):
-
-    def test_with_normal_filter(self):
-        f = filters.QueryParamFilter()
-        queryset = FakeQuerySet()
-        view = SimpleView()
-        f.filter_queryset(
-            request=FakeRequest(id='10', state='A', search='simon jefa!'),
-            view=view, queryset=queryset
+    def test_filters(self) -> None:
+        self.maxDiff = 999
+        client = APIClient()
+        dt = datetime.datetime(2026, 3, 10, 23, 0, 0, tzinfo=ZoneInfo("America/Phoenix"))
+        instance_a = BasicModel.objects.create(
+            string_uno="Roger",
+            string_dos="Simon",
+            date=dt.date(),
+            integer=1,
+            boolean=True,
         )
-        self.assertEqual(len(queryset.query), 2)
-        self.assertEqual(queryset.query[0], Q(id=10) & Q(state='A'))
-        self.assertEqual(
-            queryset.query[1],
-            Q(name__icontains='simon jefa!') | Q(category__name='simon jefa!')
+        dt = dt + datetime.timedelta(days=1)
+        instance_b = BasicModel.objects.create(
+            string_uno="blue",
+            string_dos="red",
+            date=dt.date(),
+            integer=10,
+            boolean=False,
+        )
+        dt = dt + datetime.timedelta(days=1)
+        instance_c = BasicModel.objects.create(
+            string_uno="Red",
+            string_dos="Blue",
+            date=dt.date(),
+            integer=100,
+            boolean=True,
+        )
+        dt = dt + datetime.timedelta(days=1)
+        instance_d = BasicModel.objects.create(
+            string_uno="XYC",
+            string_dos="ABC",
+            date=dt.date(),
+            integer=100,
+            boolean=True,
         )
 
-        queryset = FakeQuerySet()
-        f.filter_queryset(
-            request=FakeRequest(id='28', state='None'),
-            view=view, queryset=queryset
+        request = client.get("/api/test/", {"search_startswith": "R"}, format="json")
+        self.assertEqual(request.status_code, 200)
+        self.assertListEqual(
+            [obj["id"] for obj in request.data],
+            [instance_a.pk, instance_b.pk, instance_c.pk],
+            "query: search=R",
         )
-        self.assertEqual(len(queryset.query), 1)
-        self.assertEqual(queryset.query[0], Q(id=28))
 
-        queryset = FakeQuerySet()
-        f.filter_queryset(
-            request=FakeRequest(search='sis'),
-            view=view, queryset=queryset
+        request = client.get("/api/test/", {"search_exact": "Blue"}, format="json")
+        self.assertEqual(request.status_code, 200)
+        self.assertListEqual(
+            [obj["id"] for obj in request.data],
+            [instance_c.pk],
+            "query: search_exact=Blue",
         )
-        self.assertEqual(len(queryset.query), 1)
-        self.assertEqual(queryset.query[0],
-                         Q(name__icontains='sis') | Q(category__name='sis'))
 
-    def test_with_filter_validations(self):
-        f = filters.QueryParamFilter()
-        queryset = FakeQuerySet()
+        request = client.get("/api/test/", {"string_concat": "Blue"}, format="json")
+        self.assertEqual(request.status_code, 200)
+        self.assertListEqual(
+            [obj["id"] for obj in request.data],
+            [instance_b.pk, instance_c.pk],
+            "query: search_concats=Blue",
+        )
 
-        with self.assertRaises(ValidationError):
-            f.filter_queryset(
-                request=FakeRequest(id='id', state='None', search=''),
-                view=SimpleView(raise_exceptions=True), queryset=queryset
-            )
+        request = client.get("/api/test/", {"integer": "3000"}, format="json")
+        self.assertEqual(request.status_code, 400)
+        self.assertIn("integer", request.data)
+        self.assertEqual(request.data["integer"][0].code, "not_in_choices")
 
-        with self.assertRaises(ValidationError):
-            f.filter_queryset(
-                request=FakeRequest(id='10', state='a'),
-                view=SimpleView(raise_exceptions=True), queryset=queryset
-            )
+        request = client.get("/api/test/", {"integer": "10"}, format="json")
+        self.assertEqual(request.status_code, 200)
+        self.assertListEqual(
+            [obj["id"] for obj in request.data],
+            [instance_b.pk],
+            "query: integer=10",
+        )
 
-    def test_with_no_query_param_fields(self):
-        f = filters.QueryParamFilter()
-        queryset = FakeQuerySet()
-        view = SimpleView(query_params=None)
-        f.filter_queryset(request=FakeRequest(ignore=True),view=view, queryset=queryset)
+        request = client.get("/api/test/", {"boolean": "1"}, format="json")
+        self.assertEqual(request.status_code, 200)
+        self.assertListEqual(
+            [obj["id"] for obj in request.data],
+            [instance_a.pk, instance_c.pk, instance_d.pk],
+            "query: boolean=1",
+        )
+
+        request = client.get(
+            "/api/test/",
+            {"boolean": "0", "date": "2026-03-09,2026-03-10"},
+            format="json",
+        )
+        self.assertEqual(request.status_code, 200)
+        self.assertListEqual(
+            [obj["id"] for obj in request.data],
+            [instance_a.pk, instance_b.pk],
+            "query: boolean=0, date=2025-03-09,2025-03-10",
+        )
