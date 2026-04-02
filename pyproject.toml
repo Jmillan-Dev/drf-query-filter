@@ -15,7 +15,7 @@ authors = [
     { name="Josué Millán Zamora", email="jmillan.dev@protonmail.com" },
 ]
 classifiers = [
-    "Development Status :: 1 - Beta",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Framework :: Django",
     "License :: OSI Approved :: MIT License",
