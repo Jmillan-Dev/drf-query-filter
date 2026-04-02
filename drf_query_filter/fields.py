@@ -634,11 +634,13 @@ class ChoicesField(Field):
     def __init__(
         self,
         query_param_name: str,
-        choices: type[Choices] | list[tuple[str, Any]] | list[Any] | dict[str, Any],
         target_fields: str | tuple[str, ...] | list[str] | None = None,
         validators: list[Callable[[Any], None]] | None = None,
         description: str = "",
         example: str = "",
+        choices: (
+            type[Choices] | list[tuple[str, Any]] | list[Any] | dict[str, Any] | None
+        ) = None,
         validate_message: str = "",
         connector: str = Q.AND,
     ) -> None:
@@ -650,6 +652,9 @@ class ChoicesField(Field):
             example,
             connector,
         )
+
+        if choices is None:
+            raise TypeError("ChoicesField's choices requires to be set")
 
         if isinstance(choices, dict):
             self.choices = choices
@@ -704,11 +709,11 @@ class BooleanField(ChoicesField):
 
         super().__init__(
             query_param_name,
-            choices,
             target_fields,
             validators,
             description,
             example,
+            choices,
             validate_message,
             connector,
         )
@@ -860,11 +865,11 @@ class InChoicesField(ListField):
     ) -> None:
         field = ChoicesField(
             query_param_name,
-            choices,
             target_fields,
             validators,
             description,
             example,
+            choices,
             validate_message,
             connector,
         )
